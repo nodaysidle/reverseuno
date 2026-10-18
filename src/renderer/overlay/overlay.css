@@ -1,0 +1,302 @@
+.overlay-root {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: 0;
+  user-select: none;
+}
+
+.pill {
+  -webkit-app-region: drag;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border-radius: 26px;
+  background: rgba(20, 20, 18, 0.965);
+  color: var(--cream);
+  border: 1px solid rgba(255, 252, 235, 0.09);
+  box-shadow:
+    0 22px 60px rgba(0, 0, 0, 0.38),
+    0 4px 14px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(22px) saturate(1.2);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px 12px 18px;
+  animation: pill-in 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes pill-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.pill.is-processing {
+  background: rgba(20, 20, 18, 0.975);
+}
+.pill.is-error {
+  background: rgba(58, 22, 15, 0.975);
+  border-color: rgba(255, 124, 94, 0.22);
+  box-shadow:
+    0 22px 60px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(244, 91, 54, 0.1);
+}
+.pill.is-done {
+  border-color: rgba(122, 226, 178, 0.18);
+}
+.pill-visual {
+  flex: 0 0 104px;
+  width: 104px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+.wave {
+  display: flex;
+  align-items: center;
+  gap: 2.5px;
+  height: 44px;
+  width: 104px;
+}
+.wave-bar {
+  flex: 1;
+  min-width: 1.5px;
+  max-width: 3.5px;
+  border-radius: 999px;
+  background: var(--cream);
+  transition: height 70ms linear;
+}
+.pill-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.pill-status-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.pill-status {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pill-app {
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: rgba(255, 252, 235, 0.5);
+  background: rgba(255, 252, 235, 0.07);
+  border-radius: 5px;
+  padding: 1px 6px;
+  max-width: 118px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 0 1 auto;
+}
+.pill-lang {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  color: rgba(255, 252, 235, 0.42);
+}
+.pill-preview {
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: rgba(255, 252, 235, 0.48);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-height: 14px;
+}
+.pill.is-error .pill-preview {
+  color: rgba(255, 190, 173, 0.72);
+}
+.pill-timer {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: rgba(255, 252, 235, 0.38);
+  flex: 0 0 auto;
+  padding-right: 2px;
+}
+.pill-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  -webkit-app-region: no-drag;
+}
+.pill-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 252, 235, 0.09);
+  background: rgba(255, 252, 235, 0.06);
+  color: rgba(255, 252, 235, 0.78);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background 140ms var(--ease),
+    color 140ms var(--ease),
+    transform 140ms var(--ease);
+}
+.pill-btn:hover {
+  background: rgba(255, 252, 235, 0.14);
+  color: var(--cream);
+  transform: translateY(-1px);
+}
+.pill-btn.confirm {
+  background: var(--cream);
+  color: var(--ink);
+  border-color: transparent;
+}
+.pill-btn.confirm:hover {
+  background: #fff;
+}
+.pill-btn.cancel:hover {
+  background: rgba(244, 91, 54, 0.24);
+  color: #ffd1c4;
+}
+.pill-spinner {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 252, 235, 0.2);
+  border-top-color: var(--cream);
+  animation: spin 900ms linear infinite;
+  margin-left: 2px;
+}
+.pill-state-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 252, 235, 0.08);
+}
+.pill-state-icon.is-done {
+  background: rgba(122, 226, 178, 0.16);
+  color: #9fecc7;
+}
+.pill-state-icon.is-error {
+  background: rgba(244, 91, 54, 0.18);
+  color: #ffb3a1;
+}
+.pill-processing-note {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 8px;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 252, 235, 0.34);
+  flex: 0 0 auto;
+  padding-right: 3px;
+}
+
+/* Resting pill */
+.rest-pill {
+  -webkit-app-region: no-drag;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  height: 100%;
+  padding: 0 16px;
+  border-radius: 26px;
+  border: 1px solid rgba(255, 252, 235, 0.1);
+  background: rgba(20, 20, 18, 0.92);
+  color: var(--cream);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(18px);
+  transition:
+    background 160ms var(--ease),
+    transform 160ms var(--ease);
+  animation: pill-in 220ms var(--ease);
+}
+.rest-pill:hover {
+  background: rgba(30, 30, 27, 0.96);
+  transform: translateY(-1px);
+}
+.rest-mark {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 18px;
+}
+.rest-mark span {
+  width: 2.5px;
+  border-radius: 999px;
+  background: var(--cream);
+  opacity: 0.8;
+  animation: rest-wave 1.4s ease-in-out infinite;
+}
+.rest-mark span:nth-child(1) {
+  height: 7px;
+  animation-delay: 0ms;
+}
+.rest-mark span:nth-child(2) {
+  height: 13px;
+  animation-delay: 110ms;
+}
+.rest-mark span:nth-child(3) {
+  height: 18px;
+  animation-delay: 220ms;
+}
+.rest-mark span:nth-child(4) {
+  height: 11px;
+  animation-delay: 330ms;
+}
+.rest-mark span:nth-child(5) {
+  height: 6px;
+  animation-delay: 440ms;
+}
+@keyframes rest-wave {
+  0%,
+  100% {
+    transform: scaleY(0.55);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 0.95;
+  }
+}
+.rest-label {
+  font-size: 11px;
+  font-weight: 550;
+  letter-spacing: 0.01em;
+  color: rgba(255, 252, 235, 0.82);
+}
+.rest-pill > svg {
+  color: rgba(255, 252, 235, 0.45);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wave-bar {
+    transition: none;
+  }
+  .rest-mark span {
+    animation: none;
+  }
+}

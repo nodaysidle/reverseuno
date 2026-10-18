@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# Small control client for the running reverseuno app.
+set -euo pipefail
+
+CONFIG="${REVERSEUNO_CONTROL_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/reverseuno/control.json}"
+
+if [[ ! -f "$CONFIG" ]]; then
+  echo "reverseuno is not running (no $CONFIG). Start it with: npm start" >&2
+  exit 1
+fi
+
+read -r PORT TOKEN < <(python3 - "$CONFIG" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    data = json.load(handle)
+print(data["port"], data["token"])
+PY
+)
+
+usage() {
+  cat <<'EOF'
+usage: reverseuno <command> [args]
+
+  start              start listening (hold-to-talk press)
+  stop               stop listening, transcribe, format, paste
+  toggle             start if idle, stop if listening
+  cancel             discard the current recording
+  state              print the current state as JSON
+  health             check whether the app is reachable
+  show [page]        open the hub (home, dictionary, snippets, style, settings)
+  paste <text>       insert text at the focused cursor
+  lang <code|cycle>  set the dictation language
+  quit               quit reverseuno
+EOF
+}
+
+json() {
+  python3 -c 'import json,sys; print(json.dumps({"text": sys.argv[1]}))' "$1"
+}
+
+command="${1:-}"
+shift || true
+
+method="POST"
+path="/${command}"
+data="{}"
+
+case "$command" in
+  start|stop|toggle|cancel|quit) ;;
+  state|health)
+    method="GET"
+    data=""
+    ;;
+  show)
+    page="${1:-home}"
+    path="/show"
+    data=$(python3 -c 'import json,sys; print(json.dumps({"page": sys.argv[1]}))' "$page")
+    ;;
+  paste)
+    text="${1:-}"
+    if [[ -z "$text" ]]; then
+      text="$(cat)"
+    fi
+    path="/paste"
+    data=$(json "$text")
+    ;;
+  lang)
+    value="${1:-cycle}"
+    path="/language"
+    if [[ "$value" == "cycle" ]]; then
+      data='{"cycle":true}'
+    else
+      data=$(python3 -c 'import json,sys; print(json.dumps({"language": sys.argv[1]}))' "$value")
+    fi
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac
+
+args=(-sS --max-time 30 -X "$method" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json')
+if [[ -n "$data" ]]; then
+  args+=(-d "$data")
+fi
+
+curl "${args[@]}" "http://127.0.0.1:${PORT}${path}"
+echo

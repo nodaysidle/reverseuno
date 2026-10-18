@@ -18,6 +18,10 @@ Thumbs.db
 *.log
 tmp/
 .cache/
+out/
+*.tsbuildinfo
+tests/receipts/
+test-results/
 
 # Trail-Code & AI Agent local cache
 graft/
