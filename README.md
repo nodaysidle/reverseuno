@@ -28,15 +28,20 @@ compact Flow-Bar-style overlay.
 - **OpenRouter formatting** with four cleanup levels (None/Light/Medium/High), five
   writing styles, custom instructions, app/title context, a hard timeout, and a raw
   fallback.
-- **Wispr-style insertion:** clipboard snapshot → `wl-copy` → `wtype` Ctrl+V or
-  Shift+Insert → app-specific restore delay (0.5 s / 3 s / 5 s) → skip restore if the
-  clipboard changed. Falls back to direct typing if the clipboard is unavailable.
+- **Wispr-style insertion:** direct typing by default (the WhisperBar approach),
+  with clipboard snapshot → `wl-copy` → `wtype` Ctrl+V/Shift+Insert as an option.
+  App-specific restore delays (0.5 s / 3 s / 5 s), skip restore if the clipboard
+  changed, and a graceful fallback between the two modes.
+- **Deterministic E2E harness:** `npm run test:e2e` feeds a known WAV through
+  Chromium's fake microphone, then proves Deepgram → formatter → a real target
+  textarea → clipboard restore → history and timings. The physical Trust GXT mic
+  was also verified manually end to end.
 - **Hub UI:** Home stats/history/search, Dictionary, Snippets, Style, Settings,
   history detail drawer, edit-to-learn dictionary suggestions.
 - **Overlay UI:** compact dark pill, live waveform, interim transcript, timer, cancel
   and confirm, processing/done/error states, optional resting pill.
 - **Local-first data:** history, dictionary, snippets and settings in
-  `~/.config/reverseuno/`; no account, no telemetry; audio is never written to disk.
+  `~/.config/reverseuno/`; no account, no telemetry, audio is never written to disk.
 - **41 unit tests** for text cleanup, snippets, dictionary corrections, edit
   learning, stats, WAV handling, paste rules and the formatter prompt.
 
@@ -112,6 +117,7 @@ token stored in `~/.config/reverseuno/control.json` (mode 0600).
 
 ```bash
 npm test                 # 41 unit tests
+npm run test:e2e         # fake mic -> Deepgram -> format -> target window receipt
 npx tsc --noEmit         # typecheck
 npm run build            # main + preload + three renderer pages
 
@@ -126,6 +132,10 @@ Verified on this machine:
 - Deepgram batch: `Let's meet at 6PM on Thursday to review the quarterly report.`
 - Deepgram streaming: same final transcript, interim results visible.
 - OpenRouter: `um so i think...` → `I think we should move the review to Thursday at 6:00 and send the numbers before that.`
+- E2E: `At 6 PM on Thursday to review the quarterly report.` appeared in the target
+  textarea, the clipboard sentinel was restored, history/timings were written.
+- Physical Trust GXT 232 mic: the button and Right Cmd both opened a Deepgram stream;
+  a real spoken dictation was inserted.
 - Overlay and hub render correctly on Hyprland at 1:1 scale.
 
 ## Architecture
@@ -169,9 +179,8 @@ Key files:
 
 ## Known gaps
 
-- The **acoustic end-to-end path** (known audio → STT → format → paste) has not been
-  proven automatically. The provider stages and the UI are tested; a virtual-source
-  E2E harness is the next step.
+- The E2E harness uses Chromium's deterministic fake microphone. The physical mic was
+  verified manually, but there is no automated physical-device test.
 - No **paste verification** (Wispr uses Windows UI Automation; Linux would need
   AT-SPI). A failed paste is reported in history but not retried.
 - No **focused-text-box context** (before/after cursor, selected text). Only app class

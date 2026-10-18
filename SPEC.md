@@ -58,6 +58,9 @@ Rules:
 - The renderer forwards `{pcm, rms}` to main over IPC.
 - Main drops frames below `audio.vadThreshold` (default `0.0015`) until the first
   speech frame, keeping an 8-frame pre-roll (320 ms).
+- The worklet starts forwarding as soon as the mic is ready. Main buffers frames while
+  Deepgram connects and flushes them into the socket on open, so the first syllable
+  is not lost to connection latency.
 - Total buffered audio is capped at 20 MB (~10 minutes at 16 kHz mono).
 - On stop, the renderer stops tracks, closes the context, and reports
   `{durationMs, sampleRate, frames}`.
@@ -125,6 +128,12 @@ window title only; never screen contents or screenshots.
 
 ## 6. Insertion
 
+The default mode is `type`: direct `wtype -` typing (the WhisperBar approach). It
+does not touch the clipboard, works in terminals, and avoids clipboard races. Set
+`insert.mode = "paste"` to use the clipboard path below.
+
+Paste mode:
+
 1. Wait `insert.waitForModifiersMs` (default 180 ms) so Right ⌘ is up.
 2. Read the active Hyprland window: `hyprctl activewindow -j` → class/title.
 3. Resolve the app rule (first regex match against `"class title"`, case-insensitive).
@@ -139,7 +148,11 @@ window title only; never screen contents or screenshots.
    - Shift+Insert: `-s <keyDelay> -M shift -k Insert -m shift`
 8. Wait 50 ms.
 9. After the app-specific restore delay, restore the snapshot only if the clipboard
-   still equals what we wrote. Otherwise leave the user’s newer clipboard alone.
+   still equals the text **we wrote**. The comparison is against the inserted text,
+   not the old snapshot (that bug left the dictated text on the clipboard).
+
+If `wl-copy` cannot take the selection, fall back to `wtype -` direct typing. The
+history entry records `inserted:false` and the error if both paths fail.
 
 Default rules:
 
@@ -197,6 +210,7 @@ Loopback HTTP on `127.0.0.1`, first free port from 47100. Bearer token in
 ```
 GET  /health
 GET  /state
+GET  /devices
 POST /start     {"insert": true|false}
 POST /stop
 POST /toggle
@@ -204,11 +218,13 @@ POST /cancel
 POST /language  {"language": "sl"} | {"cycle": true}
 POST /show      {"page": "home|dictionary|snippets|style|settings"}
 POST /paste     {"text": "..."}
+POST /device    {"id": "<browser device id>"}
 POST /quit
 ```
 
 The CLI (`bin/reverseuno`) is a thin Bash + `curl` client. `REVERSEUNO_CONTROL_FILE`
-overrides the control file path for tests.
+overrides the control file path for tests. The server refreshes `control.json` every
+3 s so a crashed instance cannot leave the CLI pointed at a dead port.
 
 ## 9. Hyprland integration
 
@@ -277,6 +293,8 @@ Accessibility:
 
 - `npx tsc --noEmit` passes.
 - `npm test` passes (41 tests).
+- `npm run test:e2e` proves known audio → formatted text → target textarea +
+  clipboard restore + history/timings.
 - `npm run build` produces main, two preloads and three renderer pages.
 - `npx tsx scripts/test-stream.ts` returns the test WAV transcript.
 - `npx tsx scripts/test-format.ts` turns filler speech into punctuated text.
