@@ -15,6 +15,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { CONTROL_PORT } from '@shared/defaults'
+import { DEVELOPER_VOCABULARY } from '@shared/vocabulary'
 import type {
   AudioDevice,
   Bootstrap,
@@ -457,6 +458,11 @@ function registerIpc(): void {
     sendHub('refresh')
   })
 
+  ipcMain.handle('dictionary:add-pack', () => {
+    const added = store.addDictionaryPack(DEVELOPER_VOCABULARY)
+    sendHub('refresh')
+    return added
+  })
   ipcMain.handle('dictionary:add', (_, word: string, correction?: string) => {
     const entry = store.addDictionary(word, correction)
     sendHub('refresh')

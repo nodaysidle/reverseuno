@@ -32,6 +32,10 @@ compact Flow-Bar-style overlay.
   Chromium's fake microphone, then proves Deepgram → formatter → a real target
   textarea → clipboard restore → history and timings. The physical Trust GXT mic
   was also verified manually end to end.
+- **Dictionary with exact spellings:** an entry without a correction is written exactly
+  as stored, so `fastfetch` stays lowercase at the start of a sentence. Dictionary →
+  Add developer words loads ~170 developer terms and spoken forms (“no days idle” →
+  `nodaysidle`), skipping tool names that are also everyday English words.
 - **Hub UI:** Home stats/history/search, Dictionary, Snippets, Style, Settings,
   history detail drawer, edit-to-learn dictionary suggestions. Follows the active
   Omarchy theme (light or dark) and switches live with it; Settings → Appearance →
@@ -40,7 +44,7 @@ compact Flow-Bar-style overlay.
   hints, processing/done/error states, optional resting pill. Never takes focus.
 - **Local-first data:** history, dictionary, snippets and settings in
   `~/.config/reverseuno/`; no account, no telemetry, audio is never written to disk.
-- **58 unit tests** for text cleanup, snippets, dictionary corrections, edit
+- **60 unit tests** for text cleanup, snippets, dictionary corrections, edit
   learning, stats, WAV handling, paste rules, the formatter prompt, OpenRouter
   speech-to-text, the model list, the dictation engine and the Omarchy theme.
 

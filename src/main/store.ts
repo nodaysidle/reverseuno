@@ -235,6 +235,25 @@ export class Store {
     return entry
   }
 
+  /** Adds the words not already present; returns how many were new. */
+  addDictionaryPack(words: { word: string; correction?: string }[]): number {
+    const known = new Set(this.data.dictionary.map((item) => item.word.toLowerCase()))
+    const fresh = words.filter((item) => !known.has(item.word.toLowerCase()))
+    for (const item of fresh) {
+      this.data.dictionary.push({
+        id: randomUUID(),
+        word: item.word,
+        correction: item.correction,
+        starred: false,
+        // Below anything the user added, so their own words win the keyterm slots.
+        uses: 0,
+        createdAt: Date.now()
+      })
+    }
+    if (fresh.length) this.write()
+    return fresh.length
+  }
+
   updateDictionary(id: string, patch: Partial<DictionaryEntry>): DictionaryEntry | null {
     const entry = this.data.dictionary.find((item) => item.id === id)
     if (!entry) return null

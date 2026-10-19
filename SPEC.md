@@ -294,7 +294,9 @@ Hub:
 - Sidebar: Home, Dictionary, Snippets, Style, Settings, Help; live status card.
 - Home: greeting, date, search, four stat cards, weekly bar chart, rhythm card,
   edit-learning suggestions, history grouped by day with copy/insert/flag/edit/delete.
-- Dictionary: add word + optional correction, search, star, edit, delete, uses.
+- Dictionary: add word + optional correction, search, star, edit, delete, uses, “Add
+  developer words” pack. Entries without a correction enforce their exact spelling
+  after formatting; entries with one replace the spoken form.
 - Snippets: trigger + content, search not required, edit/delete, uses.
 - Style: four cleanup cards, five style cards, static live example, custom instructions,
   app-context toggle.
@@ -340,7 +342,7 @@ Accessibility:
 ## 11. Acceptance checks
 
 - `npx tsc --noEmit` passes.
-- `npm test` passes (58 tests).
+- `npm test` passes (60 tests).
 - `npm run test:e2e` proves known audio → formatted text → target textarea +
   clipboard restore + history/timings.
 - `npm run build` produces main, two preloads and three renderer pages.

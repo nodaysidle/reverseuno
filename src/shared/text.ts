@@ -51,18 +51,22 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+/**
+ * Rewrites dictionary words in the final text. An entry with a correction
+ * replaces the word; one without enforces its own spelling, so `fastfetch`
+ * stays lowercase even where a sentence starts.
+ */
 export function applyDictionary(text: string, entries: DictionaryEntry[]): string {
   let output = text
-  const corrections = entries
-    .filter((entry) => entry.correction && entry.correction.trim() && entry.word.trim())
-    .sort((a, b) => b.word.length - a.word.length)
+  const sorted = entries
+    .filter((entry) => entry.word.trim())
+    .sort((a, b) => b.word.trim().length - a.word.trim().length)
 
-  for (const entry of corrections) {
+  for (const entry of sorted) {
     const word = entry.word.trim()
-    const replacement = entry.correction?.trim() ?? ''
-    if (!word || !replacement) continue
+    const replacement = entry.correction?.trim() || word
     const re = new RegExp(`(?<![\\w-])${escapeRegExp(word)}(?![\\w-])`, 'gi')
-    output = output.replace(re, replacement)
+    output = output.replace(re, () => replacement)
   }
   return output
 }

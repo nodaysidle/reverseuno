@@ -53,6 +53,7 @@ const api: ReverseunoApi = {
 
   dictionaryAdd: (word: string, correction?: string) =>
     ipcRenderer.invoke('dictionary:add', word, correction) as Promise<DictionaryEntry>,
+  dictionaryAddPack: () => ipcRenderer.invoke('dictionary:add-pack') as Promise<number>,
   dictionaryUpdate: (id: string, patch: Partial<DictionaryEntry>) =>
     ipcRenderer.invoke('dictionary:update', id, patch) as Promise<DictionaryEntry>,
   dictionaryDelete: (id: string) => ipcRenderer.invoke('dictionary:delete', id),

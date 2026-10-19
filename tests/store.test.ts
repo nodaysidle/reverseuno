@@ -110,4 +110,17 @@ describe('Store', () => {
     const parsed = JSON.parse(store.exportJson()) as { dictionary: { word: string }[] }
     expect(parsed.dictionary[0]?.word).toBe('Hyprland')
   })
+
+  it('adds the developer pack once, below the words the user added', () => {
+    const store = new Store(file)
+    store.addDictionary('FASTFETCH')
+    const pack = [{ word: 'fastfetch' }, { word: 'no days idle', correction: 'nodaysidle' }]
+
+    expect(store.addDictionaryPack(pack)).toBe(1)
+    expect(store.addDictionaryPack(pack)).toBe(0)
+    expect(store.dictionary.map((item) => [item.word, item.uses])).toEqual([
+      ['FASTFETCH', 1],
+      ['no days idle', 0]
+    ])
+  })
 })

@@ -47,8 +47,14 @@ describe('applyDictionary', () => {
     expect(result).toBe('the architect is here')
   })
 
-  it('ignores entries without a correction', () => {
-    expect(applyDictionary('Deepgram', [entry('Deepgram')])).toBe('Deepgram')
+  it('enforces the exact spelling of entries without a correction', () => {
+    const words = [entry('fastfetch'), entry('Hyprland'), entry('Node.js')]
+    expect(applyDictionary('Fastfetch shows HYPRLAND on node.js.', words)).toBe('fastfetch shows Hyprland on Node.js.')
+  })
+
+  it('maps spoken forms before enforcing the written spelling', () => {
+    const words = [entry('nodaysidle'), entry('no days idle', 'nodaysidle')]
+    expect(applyDictionary('No days idle ships. Nodaysidle too.', words)).toBe('nodaysidle ships. nodaysidle too.')
   })
 })
 

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { ArrowRight, BookOpen, Check, Pencil, Plus, Search, Star, Trash2, X } from 'lucide-react'
+import { ArrowRight, BookOpen, Check, Code2, Pencil, Plus, Search, Star, Trash2, X } from 'lucide-react'
 import type { Bootstrap, DictionaryEntry } from '@shared/types'
 import { cx, formatNumber } from './lib'
 import { EmptyState } from './components'
@@ -41,6 +41,15 @@ export function DictionaryPage({
     setCorrection('')
     await refresh()
     toast(`“${clean}” added to your dictionary`, 'success')
+    setBusy(false)
+  }
+
+  const addDeveloperWords = async () => {
+    if (busy) return
+    setBusy(true)
+    const added = await window.api.dictionaryAddPack()
+    await refresh()
+    toast(added ? `Added ${added} developer words` : 'Developer words are already in your dictionary', 'success')
     setBusy(false)
   }
 
@@ -99,8 +108,12 @@ export function DictionaryPage({
         <div className="add-card-copy">
           <h2 className="add-card-title">Add a word</h2>
           <p className="add-card-sub">
-            The first field is what you say. The correction is what should appear.
+            The first field is what you say. The correction is what should appear. Without one,
+            the word is written exactly as you typed it, so <code>fastfetch</code> stays lowercase.
           </p>
+          <button type="button" className="btn btn-ghost add-pack" onClick={() => void addDeveloperWords()} disabled={busy}>
+            <Code2 size={15} /> Add developer words
+          </button>
         </div>
         <form
           className="add-form"

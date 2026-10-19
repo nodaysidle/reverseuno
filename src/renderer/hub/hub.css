@@ -870,6 +870,13 @@
   margin-top: 4px;
   line-height: 1.5;
 }
+.add-card-sub code {
+  font-family: var(--font-mono);
+  color: var(--ink-soft);
+}
+.add-pack {
+  margin-top: 10px;
+}
 .add-form {
   flex: 1;
   display: flex;

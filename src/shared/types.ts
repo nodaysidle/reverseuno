@@ -253,6 +253,8 @@ export interface ReverseunoApi {
   historyInsert(id: string): Promise<void>
   historyFlag(id: string, flagged: boolean): Promise<void>
   dictionaryAdd(word: string, correction?: string): Promise<DictionaryEntry>
+  /** Adds the built-in developer word pack; resolves to how many words were new. */
+  dictionaryAddPack(): Promise<number>
   dictionaryUpdate(id: string, patch: Partial<DictionaryEntry>): Promise<DictionaryEntry>
   dictionaryDelete(id: string): Promise<void>
   snippetAdd(trigger: string, content: string): Promise<Snippet>
