@@ -156,6 +156,8 @@ export class ControlServer {
     }
 
     const body = await this.body(req)
+    // One line per CLI call, so a log shows whether the key binds fired.
+    log.info('[control] request', { path })
 
     switch (path) {
       case '/start':

@@ -34,6 +34,9 @@ def block() -> list[str]:
         "-- Push to talk: hold Right Super, speak, release to paste.",
         f'o.bind("Super_R", "reverseuno hold", "{cli} start")',
         f'o.bind("Super_R", "reverseuno release", "{cli} stop", {{ release = true }})',
+        # Hyprland can still count Super as held while Super_R is released, so a
+        # mod-less release bind may not match. Bind both; a second stop is ignored.
+        f'o.bind("SUPER + Super_R", "reverseuno release (super held)", "{cli} stop", {{ release = true }})',
         f'o.bind("SUPER + Delete", "reverseuno cancel", "{cli} cancel")',
         "",
         "-- The overlay never takes focus, so the paste lands where you were typing.",
