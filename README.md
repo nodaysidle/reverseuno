@@ -1,49 +1,48 @@
 # reverseuno
 
-**Hold Right ⌘, speak, release. The polished text lands at your cursor.**
+**Hold Right Super, speak, release. The polished text lands at your cursor.**
 
-A Linux-native, clean-room rebuild of the Wispr Flow dictation loop, shaped around
-Omarchy/Hyprland and an Apple Magic Keyboard. Cloud STT (Deepgram Nova-3), cloud
-formatting (OpenRouter), a local hub for history/dictionary/snippets/style, and a
+A Linux-native, shaped around Omarchy/Hyprland and an Apple Magic Keyboard. Cloud STT (Deepgram Nova-3 streaming,
+or any OpenRouter transcription model), cloud formatting (OpenRouter), a local hub for history/dictionary/snippets/style, and a
 compact Flow-Bar-style overlay.
 
 ![Hub](docs/screenshots/hub-home.png)
 
 ![Overlay](docs/screenshots/overlay-listening.png)
 
-> reverseuno is an independent clean-room project. It is not affiliated with Wispr
-> AI, Inc. and ships no Wispr code, assets, keys or trademarks. The behaviour was
-> reconstructed from a published teardown and public product documentation.
-
 ---
 
 ## What works today
 
-- **Right ⌘ push-to-talk.** `Super_R` press starts, release stops. The installer
-  comments out the old WhisperBar bind on the same key so the two do not double-fire.
+- **Right Super push-to-talk.** `Super_R` press starts, release stops and pastes,
+  `Super+Delete` cancels. The text goes back into the window you started in, even if
+  focus moved meanwhile. The installer comments out the old WhisperBar bind on the
+  same key so the two do not double-fire.
 - **16 kHz mono capture** in an Electron renderer with an `AudioWorklet`, 640-sample
   (40 ms) frames — the same shape as the original Wispr recorder.
 - **Deepgram Nova-3 streaming** over a WebSocket with interim results, keepalive,
   keyterms from your dictionary, and a whole-clip batch fallback if the socket dies.
+- **OpenRouter speech-to-text** as an alternative: pick Deepgram or OpenRouter in
+  Settings → Providers, then any model from OpenRouter's transcription catalogue
+  (default `openai/gpt-4o-mini-transcribe`). One key for everything; no live preview.
 - **OpenRouter formatting** with four cleanup levels (None/Light/Medium/High), five
   writing styles, custom instructions, app/title context, a hard timeout, and a raw
   fallback.
-- **Wispr-style insertion:** direct typing by default (the WhisperBar approach),
-  with clipboard snapshot → `wl-copy` → `wtype` Ctrl+V/Shift+Insert as an option.
-  App-specific restore delays (0.5 s / 3 s / 5 s), skip restore if the clipboard
-  changed, and a graceful fallback between the two modes.
 - **Deterministic E2E harness:** `npm run test:e2e` feeds a known WAV through
   Chromium's fake microphone, then proves Deepgram → formatter → a real target
   textarea → clipboard restore → history and timings. The physical Trust GXT mic
   was also verified manually end to end.
 - **Hub UI:** Home stats/history/search, Dictionary, Snippets, Style, Settings,
-  history detail drawer, edit-to-learn dictionary suggestions.
-- **Overlay UI:** compact dark pill, live waveform, interim transcript, timer, cancel
-  and confirm, processing/done/error states, optional resting pill.
+  history detail drawer, edit-to-learn dictionary suggestions. Follows the active
+  Omarchy theme (light or dark) and switches live with it; Settings → Appearance →
+  Paper restores the built-in look.
+- **Overlay UI:** compact dark pill, live waveform, interim transcript, timer, key
+  hints, processing/done/error states, optional resting pill. Never takes focus.
 - **Local-first data:** history, dictionary, snippets and settings in
   `~/.config/reverseuno/`; no account, no telemetry, audio is never written to disk.
-- **41 unit tests** for text cleanup, snippets, dictionary corrections, edit
-  learning, stats, WAV handling, paste rules and the formatter prompt.
+- **58 unit tests** for text cleanup, snippets, dictionary corrections, edit
+  learning, stats, WAV handling, paste rules, the formatter prompt, OpenRouter
+  speech-to-text, the model list, the dictation engine and the Omarchy theme.
 
 ## Quick start
 
@@ -71,7 +70,7 @@ npm start
 npm run dev
 ```
 
-### 3. Install the CLI, desktop entry and Right ⌘ bind
+### 3. Install the CLI, desktop entry and Right Super bind
 
 ```bash
 bash scripts/install-local.sh
@@ -87,13 +86,16 @@ This:
 ```lua
 o.bind("Super_R", "reverseuno hold", "/home/arch/.local/bin/reverseuno start")
 o.bind("Super_R", "reverseuno release", "/home/arch/.local/bin/reverseuno stop", { release = true })
+o.bind("SUPER + Delete", "reverseuno cancel", "/home/arch/.local/bin/reverseuno cancel")
 ```
 
-- adds floating-window rules for the 1180×820 hub and the 500×108 overlay;
+- adds floating-window rules for the 1180×820 hub and the 500×108 overlay (the
+  overlay is `no_focus`, so it can never swallow the paste);
+- rerunning it updates the block in place;
 - comments out the active WhisperBar `Super_R` bind;
 - reloads Hyprland.
 
-Then hold **Right ⌘**, speak, and release. The app is also listed under
+Then hold **Right Super**, speak, and release. The app is also listed under
 **Omarchy menu → Apps → reverseuno**.
 
 ### CLI
@@ -117,7 +119,8 @@ token stored in `~/.config/reverseuno/control.json` (mode 0600).
 
 ```bash
 npm test                 # 41 unit tests
-npm run test:e2e         # fake mic -> Deepgram -> format -> target window receipt
+npm run test:e2e         # fake mic -> STT -> format -> target window, with a focus steal
+E2E_STT=openrouter npm run test:e2e   # same receipt through OpenRouter transcription
 npx tsc --noEmit         # typecheck
 npm run build            # main + preload + three renderer pages
 
@@ -141,7 +144,7 @@ Verified on this machine:
 ## Architecture
 
 ```text
-Right ⌘ (Hyprland bind)
+Right Super (Hyprland bind)
         │
         ▼
 reverseuno CLI ──HTTP──▶ Electron main (DictationEngine)
@@ -167,7 +170,9 @@ Key files:
 |---|---|
 | `src/main/dictation.ts` | State machine, streaming, fallback, formatting, insertion, history |
 | `src/main/stt/deepgram.ts` | WebSocket + batch Deepgram client |
-| `src/main/format.ts` | Formatter prompt and OpenRouter/DeepSeek call |
+| `src/main/stt/openrouter.ts` | OpenRouter `/audio/transcriptions` client |
+| `src/main/models.ts` | Live OpenRouter model lists for Settings |
+| `src/main/format.ts` | Formatter prompt and OpenRouter call |
 | `src/main/paste.ts` | Hyprland window lookup, clipboard snapshot/restore, `wtype` rules |
 | `src/main/index.ts` | Windows, IPC, control server, tray, autostart |
 | `src/renderer/hub/` | Hub React UI |
@@ -175,7 +180,6 @@ Key files:
 | `src/renderer/capture/` | Hidden mic renderer + AudioWorklet |
 | `src/shared/` | Types, defaults, text cleanup, stats, WAV |
 | `scripts/install-hyprland.py` | Idempotent Hyprland bind + window rules |
-| `PROMPT-OPUS-5.5.md` | Handoff prompt for the next model |
 
 ## Known gaps
 
@@ -193,13 +197,12 @@ Key files:
 - No meeting recorder, notepad/scratchpad, insights or mobile sync.
 - The hub uses JSON storage; Wispr uses SQLite with migrations.
 
-See [`SPEC.md`](SPEC.md) for the full behaviour contract and [`TEARDOWN.md`](TEARDOWN.md)
-for the evidence behind each copied behaviour.
 
 ## Privacy
 
-- Audio is streamed to Deepgram and held in memory for the batch fallback only.
-- The cleaned transcript is sent to OpenRouter (or DeepSeek) when formatting is on.
+- Audio is streamed to Deepgram (or sent once to OpenRouter on release) and held in
+  memory only for that request.
+- The cleaned transcript is sent to OpenRouter when formatting is on.
 - App class/window title can be sent as tone context; disable it in Style.
 - History, dictionary, snippets and settings stay in `~/.config/reverseuno/`.
 - No analytics, no account, no telemetry.

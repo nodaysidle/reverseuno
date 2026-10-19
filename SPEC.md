@@ -7,13 +7,14 @@ work. Where the code and this file disagree, fix one of them deliberately.
 
 A Linux desktop dictation loop:
 
-1. Hold Right ⌘.
+1. Hold Right Super.
 2. Speak.
 3. Release.
 4. The finished text is inserted into the focused app.
 5. A local record is kept for history, dictionary learning and stats.
 
-Cloud-only by choice: Deepgram for speech, OpenRouter (or DeepSeek) for formatting.
+Cloud-only by choice: Deepgram (streaming) or OpenRouter (one request on release) for
+speech, OpenRouter for formatting.
 No account, no telemetry, no audio on disk.
 
 ## 2. State machine
@@ -66,7 +67,12 @@ Rules:
   `{durationMs, sampleRate, frames}`.
 - A disconnected device ends the session cleanly.
 
-## 4. Speech-to-text (Deepgram)
+## 4. Speech-to-text
+
+`stt.provider` picks the engine: `deepgram` (default, streaming, live preview) or
+`openrouter` (batch, see 4b). The key check on start follows the provider.
+
+### 4a. Deepgram
 
 Streaming URL:
 
@@ -93,6 +99,18 @@ wss://api.deepgram.com/v1/listen
 - If the socket failed/closed or produced no text, POST the whole clip as WAV to the
   batch endpoint (`detect_language=true` for auto).
 - Language errors: `detect_language` is batch-only; do not put it on the stream.
+
+### 4b. OpenRouter
+
+- `POST <format.baseUrl>/audio/transcriptions`, JSON body (not multipart):
+  `{ model, input_audio: { data: <base64 WAV>, format: "wav" }, language?, prompt? }`.
+- `model` is `stt.openrouterModel` (default `openai/gpt-4o-mini-transcribe`). Settings
+  suggests ids from `GET /models?output_modalities=transcription`; any id is accepted.
+- `language` only for two-letter codes; `auto`/`multi` omit it so the model detects.
+- `prompt` is the dictionary keyterms (≤600 chars). On a 400 with a prompt, retry
+  once without it; not every model accepts one.
+- No socket is opened; capture buffers the whole clip and it is sent on stop.
+  60 s request timeout. No interim text.
 
 ## 5. Formatting
 
@@ -128,14 +146,20 @@ window title only; never screen contents or screenshots.
 
 ## 6. Insertion
 
-The default mode is `type`: direct `wtype -` typing (the WhisperBar approach). It
-does not touch the clipboard, works in terminals, and avoids clipboard races. Set
-`insert.mode = "paste"` to use the clipboard path below.
+The default mode is `paste` (clipboard + key chord, keeps undo). `type` is direct
+`wtype -` typing for fields that reject paste.
+
+Focus: the session records the Hyprland window (`address`, class, title) when the key
+goes down. Before inserting, if the active window has a different address, refocus
+it (`hl.dsp.focus({ window = "address:…" })`, falling back to `focuswindow`). If focus
+cannot be returned, put the text on the clipboard and report an error instead of
+typing into the wrong window. The overlay is non-focusable and click-through while
+recording, and its Hyprland rule sets `no_focus`.
 
 Paste mode:
 
-1. Wait `insert.waitForModifiersMs` (default 180 ms) so Right ⌘ is up.
-2. Read the active Hyprland window: `hyprctl activewindow -j` → class/title.
+1. Wait `insert.waitForModifiersMs` (default 180 ms) so Right Super is up.
+2. Ensure the target window is focused (above); read its class/title.
 3. Resolve the app rule (first regex match against `"class title"`, case-insensitive).
 4. Snapshot the clipboard: text plus `image/png` if present (20 MB cap).
 5. Write the text with `wl-copy` (`text/plain;charset=utf-8`; fall back to
@@ -163,9 +187,6 @@ Default rules:
 | remmina, virt-manager, anydesk, teamviewer, rustdesk, wfica32, mstsc, rdcman | Ctrl+V | 5000 ms |
 | libreoffice, onlyoffice, thunderbird, whatsapp | Ctrl+V | 3000 ms |
 | everything else | `insert.defaultKeys` | `insert.restoreDelayMs` (500 ms) |
-
-If `wl-copy` cannot take the selection, fall back to `wtype -` direct typing. The
-history entry records `inserted:false` and the error if both paths fail.
 
 ## 7. Data model
 
@@ -228,16 +249,25 @@ overrides the control file path for tests. The server refreshes `control.json` e
 
 ## 9. Hyprland integration
 
-`scripts/install-hyprland.py` is idempotent:
+`scripts/install-hyprland.py` is idempotent. It manages one block between
+`-- >>> reverseuno` / `-- <<< reverseuno` markers and replaces it in place on rerun
+(upgrading the unmarked block older versions wrote):
 
-- backs up `~/.config/hypr/bindings.lua` to `.bak.<epoch>`;
+- backs up `~/.config/hypr/bindings.lua` to `.bak.<epoch>` when it changes anything;
 - comments out active `o.bind("Super_R" … whisper-bar …)` lines;
-- appends the reverseuno hold bind;
-- appends window rules:
+- writes push-to-talk and cancel binds (absolute CLI path):
+
+```lua
+o.bind("Super_R", "reverseuno hold", "~/.local/bin/reverseuno start")
+o.bind("Super_R", "reverseuno release", "~/.local/bin/reverseuno stop", { release = true })
+o.bind("SUPER + Delete", "reverseuno cancel", "~/.local/bin/reverseuno cancel")
+```
+
+- writes window rules:
 
 ```lua
 o.window({ class = "^reverseuno$", title = "^reverseuno-overlay$" }, {
-  float = true, pin = true, no_initial_focus = true, no_dim = true,
+  float = true, pin = true, no_focus = true, no_initial_focus = true, no_dim = true,
   border_size = 0, opacity = "1 1", size = { 500, 108 },
   move = { "(monitor_w-window_w)/2", "(monitor_h-window_h-18)" },
 })
@@ -247,6 +277,10 @@ o.window({ class = "^reverseuno$", title = "^reverseuno$" }, {
 ```
 
 - runs `hyprctl reload`.
+
+Wayland clients cannot position themselves, so on show the app moves the overlay with
+`hl.dsp.window.move({ x, y, window = "address:…" })` (legacy: `movewindowpixel exact`).
+That is what makes `overlay.position` and `overlay.offsetY` take effect.
 
 The app defaults to native Wayland when `WAYLAND_DISPLAY` is set; `REVERSEUNO_OZONE=x11`
 forces XWayland. `force-device-scale-factor=1` is applied unless `REVERSEUNO_SCALE` is
@@ -266,21 +300,35 @@ Hub:
   app-context toggle.
 - Settings: Dictation (hotkey/language/mic/test), Providers (keys/status/models/test),
   Insertion (mode/keys/delay/toggles/app rules), Overlay (rest/position/offset/hide/
-  sounds), History (limit/auto-learn/export/clear), System (login/start/quit), About.
+  sounds), Appearance (Omarchy/Paper), History (limit/auto-learn/export/clear),
+  System (login/start/quit), About.
 - Detail drawer: full text, edit, copy, insert, delete, raw transcript, metadata,
   suggestions.
 - Window: frameless, 1180×820, custom titlebar, hide-on-close (app keeps running).
+- Theme (`appearance.theme`, default `omarchy`): the main process reads
+  `~/.local/state/omarchy/current/theme/colors.toml`, watches that directory, and
+  pushes `hub:theme` on a switch. The hub sets eleven `--t-*` colors and derives the
+  rest in `base.css`; on dark themes filled controls use the accent and large
+  inverted cards use the deep background. No Omarchy, or `paper`: the built-in look.
 
 Overlay:
 
 - Exactly 500×108, bottom-centre with 18 px gap, rounded, dark.
-- Listening: waveform, “Listening”, friendly app label, interim text, timer, cancel,
-  confirm.
-- Transcribing/formatting/inserting: spinner + label; no confirm.
-- Done: check + “Pasted” / “Saved”; hides after `overlay.hideAfterMs`.
+- Never focusable; click-through while recording, so it cannot take focus from the
+  target window. No buttons while listening: key hints (“Release → paste”,
+  “Super Del → cancel”), hidden for hub-started sessions that save to history.
+- Listening: waveform, “Listening”, friendly app label, interim text, timer.
+- Transcribing/formatting/inserting: spinner + “Transcribing” / “Polishing” / “Pasting”.
+- Done: check + the engine's message (“Pasted” / “Saved to history” / “Too short…”);
+  hides after `overlay.hideAfterMs`.
+- Sounds (`overlay.sounds`): rising blip on start, falling on paste, low on error.
 - Error: alert + message; hides after `overlay.errorHideAfterMs`.
-- Rest (optional): full-width “Right ⌘ to talk” pill; click starts.
-- Drag region on the pill; buttons are `no-drag`.
+- Rest (optional): full-width “Hold Right Super to talk” pill; click starts, click again
+  stops and pastes.
+
+Mouse entry points (hub buttons, tray, rest pill) toggle: there is no key release to
+end those sessions. Hub-started sessions save to history instead of pasting, because
+the hub itself has focus.
 
 Accessibility:
 
@@ -292,13 +340,13 @@ Accessibility:
 ## 11. Acceptance checks
 
 - `npx tsc --noEmit` passes.
-- `npm test` passes (41 tests).
+- `npm test` passes (58 tests).
 - `npm run test:e2e` proves known audio → formatted text → target textarea +
   clipboard restore + history/timings.
 - `npm run build` produces main, two preloads and three renderer pages.
 - `npx tsx scripts/test-stream.ts` returns the test WAV transcript.
 - `npx tsx scripts/test-format.ts` turns filler speech into punctuated text.
-- Holding Right ⌘ shows the overlay, waveform moves, release pastes.
+- Holding Right Super shows the overlay, waveform moves, release pastes.
 - Terminal/IDE app rules use Shift+Insert; remote-desktop apps wait 5 s.
 - Clipboard is restored only if unchanged.
 - Editing a history entry creates a dictionary suggestion (or auto-learns it).

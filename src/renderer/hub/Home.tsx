@@ -233,7 +233,7 @@ export function Home({
           <div className="eyebrow">{todayEyebrow()}</div>
           <h1 className="home-title">{greeting()}.</h1>
           <p className="home-sub">
-            Hold <span className="kbd">Right ⌘</span>, speak naturally, release. Reverseuno writes it
+            Hold <span className="kbd">Right Super</span>, speak naturally, release. Reverseuno writes it
             into the app you are already in.
           </p>
         </div>
@@ -241,11 +241,12 @@ export function Home({
           <button
             type="button"
             className={cx('btn btn-primary btn-lg', active && 'is-live')}
-            onClick={() => void window.api.dictationStart()}
-            disabled={active}
+            onClick={() => void window.api.dictationToggle(false)}
+            disabled={active && state.state !== 'listening'}
+            title="Records here and saves to history. Hold Right Super to paste into other apps."
           >
             <Mic size={17} />
-            {active ? 'Dictation running' : 'New dictation'}
+            {state.state === 'listening' ? 'Stop and save' : 'New dictation'}
           </button>
           <button type="button" className="btn btn-ghost btn-lg" onClick={() => navigate('settings')}>
             Settings
@@ -427,7 +428,7 @@ export function Home({
               body={
                 query
                   ? 'Try a different word, app name, or a phrase from the raw transcript.'
-                  : 'Hold Right ⌘ and say something. Release, and the polished text lands at your cursor.'
+                  : 'Hold Right Super and say something. Release, and the polished text lands at your cursor.'
               }
               action={
                 query ? (
@@ -438,7 +439,7 @@ export function Home({
                   <button
                     type="button"
                     className="btn btn-primary btn-sm"
-                    onClick={() => void window.api.dictationStart()}
+                    onClick={() => void window.api.dictationToggle(false)}
                   >
                     <Mic size={14} /> Start dictating
                   </button>

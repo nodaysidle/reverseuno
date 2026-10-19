@@ -3,30 +3,90 @@
   --paper-2: #fbf8f0;
   --paper-3: #ece5d6;
   --paper-4: #e2dac8;
+  --surface: #fff;
   --ink: #171715;
   --ink-soft: #4b4a44;
   --muted: #8b8678;
-  --line: rgba(23, 23, 21, 0.1);
-  --line-strong: rgba(23, 23, 21, 0.18);
+  --line: color-mix(in srgb, var(--ink) 10%, transparent);
+  --line-strong: color-mix(in srgb, var(--ink) 18%, transparent);
   --accent: #f45b36;
   --accent-soft: #ffd9cd;
+  --on-accent: #fff;
   --lavender: #e8d9ff;
   --lavender-soft: #f3ebff;
+  --violet: #7e5cb4;
+  --violet-ink: #5a3a8a;
   --green: #2f7a5b;
   --green-soft: #dcefe5;
+  --green-ink: #1f5d46;
   --red: #c5492f;
   --red-soft: #f7ded7;
+  --red-ink: #8f301e;
   --dark: #141412;
   --cream: #fffceb;
+  /* Filled chips, buttons and toggles; --cream is the text on them. */
+  --solid: var(--ink);
+  --shadow-ink: #171715;
   --radius-sm: 12px;
   --radius: 18px;
   --radius-lg: 26px;
-  --shadow-sm: 0 1px 2px rgba(23, 23, 21, 0.04), 0 8px 24px rgba(23, 23, 21, 0.06);
-  --shadow-lg: 0 24px 70px rgba(23, 23, 21, 0.16);
+  --shadow-sm:
+    0 1px 2px color-mix(in srgb, var(--shadow-ink) 4%, transparent),
+    0 8px 24px color-mix(in srgb, var(--shadow-ink) 6%, transparent);
+  --shadow-lg: 0 24px 70px color-mix(in srgb, var(--shadow-ink) 16%, transparent);
   --font-display: 'Instrument Serif', 'Iowan Old Style', Georgia, serif;
   --font-sans: 'Inter Variable', Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: 'SFMono-Regular', ui-monospace, 'Cascadia Code', Menlo, monospace;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/*
+ * Omarchy theme: the hub sets the --t-* colors from the active colors.toml
+ * (see hub/theme.ts) and everything else is derived here, so any theme, light
+ * or dark, gets a complete palette from eleven values.
+ */
+:root[data-theme='omarchy'] {
+  --paper: var(--t-background);
+  --paper-2: color-mix(in srgb, var(--t-surface) 70%, var(--t-background));
+  --paper-3: color-mix(in srgb, var(--t-foreground) 7%, var(--t-background));
+  --paper-4: color-mix(in srgb, var(--t-foreground) 13%, var(--t-background));
+  --surface: var(--t-surface);
+  --ink: var(--t-foreground);
+  --ink-soft: color-mix(in srgb, var(--t-foreground) 76%, var(--t-background));
+  --muted: var(--t-muted);
+  --accent: var(--t-accent);
+  --accent-soft: color-mix(in srgb, var(--t-accent) 24%, var(--t-background));
+  --on-accent: var(--t-on-accent);
+  --lavender: color-mix(in srgb, var(--t-violet) 30%, var(--t-background));
+  --lavender-soft: color-mix(in srgb, var(--t-violet) 16%, var(--t-background));
+  --violet: var(--t-violet);
+  --violet-ink: color-mix(in srgb, var(--t-violet) 70%, var(--t-foreground));
+  --green: var(--t-green);
+  --green-soft: color-mix(in srgb, var(--t-green) 20%, var(--t-background));
+  --green-ink: color-mix(in srgb, var(--t-green) 55%, var(--t-deep));
+  --red: var(--t-red);
+  --red-soft: color-mix(in srgb, var(--t-red) 20%, var(--t-background));
+  --red-ink: color-mix(in srgb, var(--t-red) 55%, var(--t-deep));
+  --dark: var(--t-deep);
+  --solid: var(--t-foreground);
+  --cream: var(--t-background);
+  --shadow-ink: #000;
+  color-scheme: light;
+}
+:root[data-theme='omarchy'][data-mode='dark'] {
+  /* A white slab is harsh on a dark desktop: fill with the accent instead. */
+  --solid: var(--t-accent);
+  --cream: var(--t-on-accent);
+  color-scheme: dark;
+}
+/* Large inverted cards stay calm on dark themes: deep background, normal text. */
+:root[data-theme='omarchy'][data-mode='dark'] :is(.rhythm-card, .preview-card, .help-code) {
+  --cream: var(--t-foreground);
+  background: var(--t-deep);
+  border-color: var(--line);
+}
+:root[data-theme='omarchy'][data-mode='light'] {
+  --shadow-ink: var(--t-foreground);
 }
 
 * {
@@ -43,8 +103,8 @@ body {
   margin: 0;
   color: var(--ink);
   background:
-    radial-gradient(1100px 620px at 86% -12%, rgba(244, 91, 54, 0.075), transparent 62%),
-    radial-gradient(900px 520px at -8% 112%, rgba(232, 217, 255, 0.5), transparent 60%),
+    radial-gradient(1100px 620px at 86% -12%, color-mix(in srgb, var(--accent) 7.5%, transparent), transparent 62%),
+    radial-gradient(900px 520px at -8% 112%, color-mix(in srgb, var(--lavender) 50%, transparent), transparent 60%),
     var(--paper);
   font-family: var(--font-sans);
   font-size: 14px;
@@ -111,13 +171,13 @@ a {
   height: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(23, 23, 21, 0.16);
+  background: color-mix(in srgb, var(--ink) 16%, transparent);
   border: 3px solid transparent;
   background-clip: padding-box;
   border-radius: 999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(23, 23, 21, 0.28);
+  background: color-mix(in srgb, var(--ink) 28%, transparent);
   border: 3px solid transparent;
   background-clip: padding-box;
 }
@@ -152,38 +212,38 @@ a {
   transform: translateY(0);
 }
 .btn-primary {
-  background: var(--ink);
+  background: var(--solid);
   color: var(--cream);
-  box-shadow: 0 6px 18px rgba(23, 23, 21, 0.16);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--shadow-ink) 16%, transparent);
 }
 .btn-primary:hover {
-  background: #2a2a27;
+  background: color-mix(in srgb, var(--solid) 88%, var(--paper));
 }
 .btn-accent {
   background: var(--accent);
-  color: #fff;
-  box-shadow: 0 6px 18px rgba(244, 91, 54, 0.22);
+  color: var(--on-accent);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 .btn-accent:hover {
-  background: #f04a23;
+  background: color-mix(in srgb, var(--accent) 88%, var(--ink));
 }
 .btn-ghost {
   border-color: var(--line-strong);
-  background: rgba(255, 255, 255, 0.35);
+  background: color-mix(in srgb, var(--surface) 35%, transparent);
 }
 .btn-ghost:hover {
-  background: rgba(255, 255, 255, 0.7);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
 }
 .btn-soft {
-  background: rgba(23, 23, 21, 0.06);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
 }
 .btn-soft:hover {
-  background: rgba(23, 23, 21, 0.1);
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
 }
 .btn-danger {
   color: var(--red);
-  border-color: rgba(197, 73, 47, 0.22);
-  background: rgba(247, 222, 215, 0.45);
+  border-color: color-mix(in srgb, var(--red) 22%, transparent);
+  background: color-mix(in srgb, var(--red-soft) 45%, transparent);
 }
 .btn-sm {
   height: 32px;
@@ -212,7 +272,7 @@ a {
     transform 140ms var(--ease);
 }
 .btn-icon:hover {
-  background: rgba(23, 23, 21, 0.07);
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
   color: var(--ink);
   transform: translateY(-1px);
 }
@@ -227,7 +287,7 @@ a {
   width: 100%;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.55);
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
   padding: 10px 12px;
   font-size: 13.5px;
   color: var(--ink);
@@ -245,8 +305,8 @@ a {
 .select:focus {
   outline: none;
   border-color: var(--ink);
-  background: #fff;
-  box-shadow: 0 0 0 3px rgba(232, 217, 255, 0.7);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--lavender) 70%, transparent);
 }
 .textarea {
   resize: vertical;
@@ -266,14 +326,14 @@ a {
 }
 
 .card {
-  background: rgba(255, 255, 255, 0.48);
+  background: color-mix(in srgb, var(--surface) 48%, transparent);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
 }
 .card-flat {
   box-shadow: none;
-  background: rgba(255, 255, 255, 0.3);
+  background: color-mix(in srgb, var(--surface) 30%, transparent);
 }
 
 .eyebrow {
@@ -310,17 +370,17 @@ a {
   font-size: 11px;
   font-weight: 580;
   letter-spacing: 0.01em;
-  background: rgba(23, 23, 21, 0.06);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
   color: var(--ink-soft);
   white-space: nowrap;
 }
 .pill-accent {
   background: var(--accent-soft);
-  color: #8c2e16;
+  color: var(--red-ink);
 }
 .pill-lavender {
   background: var(--lavender);
-  color: #4b2d74;
+  color: var(--violet-ink);
 }
 .pill-green {
   background: var(--green-soft);
@@ -331,7 +391,7 @@ a {
   color: var(--red);
 }
 .pill-dark {
-  background: var(--ink);
+  background: var(--solid);
   color: var(--cream);
 }
 
@@ -345,7 +405,7 @@ a {
   border-radius: 7px;
   border: 1px solid var(--line-strong);
   border-bottom-width: 2px;
-  background: rgba(255, 255, 255, 0.62);
+  background: color-mix(in srgb, var(--surface) 62%, transparent);
   font-family: var(--font-mono);
   font-size: 10.5px;
   color: var(--ink-soft);

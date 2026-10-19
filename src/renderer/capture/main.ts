@@ -72,7 +72,25 @@ async function start(options: CaptureStartOptions): Promise<void> {
     source.connect(worklet)
     worklet.connect(context.destination)
     await context.resume()
+    const track = stream.getAudioTracks()[0]
+    // Only the microphone we are recording from going away ends the session.
+    // Unrelated device changes (a headset connecting) must not cut the clip.
+    track?.addEventListener('ended', () => {
+      if (recording) {
+        window.captureApi.info('input track ended; finishing with the audio so far')
+        void stop()
+      }
+    })
+    const settings = track?.getSettings?.() ?? {}
+    window.captureApi.info(
+      `input=${track?.label || 'unknown'} rate=${sampleRate} device=${String(settings.deviceId ?? '')}`
+    )
     window.captureApi.ready(sampleRate)
+    // Start forwarding immediately; main buffers frames until Deepgram opens
+    // and flushes them, so the first syllable is never lost to connect latency.
+    recording = true
+    startedAt = performance.now()
+    frames = 0
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     window.captureApi.error(message)
@@ -81,7 +99,7 @@ async function start(options: CaptureStartOptions): Promise<void> {
 }
 
 function go(): void {
-  if (recording || !context) return
+  if (recording) return
   recording = true
   startedAt = performance.now()
   frames = 0
@@ -109,7 +127,18 @@ async function cancel(): Promise<void> {
 
 async function listDevices(): Promise<void> {
   try {
-    const devices = await navigator.mediaDevices.enumerateDevices()
+    let devices = await navigator.mediaDevices.enumerateDevices()
+    if (!devices.some((device) => device.kind === 'audioinput' && device.label)) {
+      // Chromium hides labels until permission has been granted. A short probe
+      // unlocks the real names for the Settings picker and the E2E harness.
+      try {
+        const probe = await navigator.mediaDevices.getUserMedia({ audio: true })
+        for (const track of probe.getTracks()) track.stop()
+      } catch {
+        // keep going with the unlabeled list
+      }
+      devices = await navigator.mediaDevices.enumerateDevices()
+    }
     const seen = new Set<string>()
     const inputs: AudioDevice[] = []
     for (const device of devices) {
@@ -135,7 +164,3 @@ window.captureApi.onStop(() => void stop())
 window.captureApi.onCancel(() => void cancel())
 window.captureApi.onListDevices(() => void listDevices())
 
-// A disconnected microphone should end the session cleanly instead of recording silence.
-navigator.mediaDevices?.addEventListener?.('devicechange', () => {
-  if (recording) void stop()
-})

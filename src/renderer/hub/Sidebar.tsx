@@ -23,7 +23,7 @@ function LogoMark() {
     <span className="logo-mark" aria-hidden="true">
       <svg viewBox="0 0 32 32" width="28" height="28">
         <rect width="32" height="32" rx="10" fill="currentColor" />
-        <g fill="#FFFCEB">
+        <g fill="var(--cream)">
           <rect x="7" y="13" width="2.4" height="6" rx="1.2" />
           <rect x="11.2" y="9.5" width="2.4" height="13" rx="1.2" />
           <rect x="15.4" y="6.5" width="2.4" height="19" rx="1.2" />
@@ -44,7 +44,7 @@ function statusCopy(state: StateEvent): string {
     case 'formatting':
       return 'Polishing'
     case 'inserting':
-      return 'Inserting'
+      return 'Pasting'
     case 'error':
       return 'Needs attention'
     default:
@@ -106,7 +106,7 @@ export function Sidebar({
         <span className="dictate-copy">
           <span className="dictate-status">{statusCopy(state)}</span>
           <span className="dictate-hint">
-            Hold <span className="kbd">Right ⌘</span> to talk
+            Hold <span className="kbd">Right Super</span> to talk
           </span>
         </span>
         <Mic size={17} strokeWidth={1.8} />

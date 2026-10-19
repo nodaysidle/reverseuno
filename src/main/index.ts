@@ -10,6 +10,7 @@ import {
   shell,
   Tray
 } from 'electron'
+import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -18,6 +19,7 @@ import type {
   AudioDevice,
   Bootstrap,
   DeepPartial,
+  ModelKind,
   ProviderTestResult,
   SecretName,
   Settings,
@@ -29,10 +31,12 @@ import { Store } from './store'
 import { Secrets } from './secrets'
 import { initLogger, getLogPath, log } from './logger'
 import { ControlServer } from './control'
-import { copyToClipboard, notify } from './paste'
+import { copyToClipboard, notify, placeOwnWindow } from './paste'
 import { validateDeepgramKey } from './stt/deepgram'
 import { validateOpenRouterKey } from './format'
 import { seedDemo } from './demo'
+import { listOpenRouterModels } from './models'
+import { readOmarchyTheme, watchOmarchyTheme } from './theme'
 
 const isDev = !app.isPackaged
 const userData = process.env.REVERSEUNO_USER_DATA || join(app.getPath('appData'), 'reverseuno')
@@ -57,6 +61,13 @@ if (process.env.REVERSEUNO_GPU !== '1') {
   app.commandLine.appendSwitch('disable-vulkan')
 }
 app.commandLine.appendSwitch('class', 'reverseuno')
+if (process.env.REVERSEUNO_FAKE_AUDIO) {
+  // Deterministic microphone for the E2E harness. The rest of the pipeline
+  // (getUserMedia, AudioWorklet, Deepgram, formatter, paste) is unchanged.
+  app.commandLine.appendSwitch('use-fake-device-for-media-stream')
+  app.commandLine.appendSwitch('use-fake-ui-for-media-stream')
+  app.commandLine.appendSwitch('use-file-for-fake-audio-capture', process.env.REVERSEUNO_FAKE_AUDIO)
+}
 if (process.env.REVERSEUNO_OZONE === 'x11') app.commandLine.appendSwitch('enable-transparent-visuals')
 
 const logPath = initLogger(join(userData, 'logs'))
@@ -82,9 +93,12 @@ let deviceResolvers: ((devices: AudioDevice[]) => void)[] = []
 
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
-  app.quit()
+  app.exit(0)
 } else {
-  app.on('second-instance', () => showHub())
+  app.on('second-instance', () => {
+    void ensureTray()
+    showHub()
+  })
 }
 
 function resourcePath(name: string): string {
@@ -141,11 +155,14 @@ function overlayBounds(): Electron.Rectangle {
 
 function showOverlay(): void {
   if (!overlay) return
-  overlay.setBounds(overlayBounds())
+  const bounds = overlayBounds()
+  overlay.setBounds(bounds)
   overlay.showInactive()
   overlay.setAlwaysOnTop(true, 'screen-saver')
   overlay.moveTop()
-  overlay.setIgnoreMouseEvents(false)
+  if (process.env.HYPRLAND_INSTANCE_SIGNATURE) {
+    void placeOwnWindow('reverseuno-overlay', bounds.x, bounds.y).catch(() => undefined)
+  }
 }
 
 function hideOverlay(): void {
@@ -174,7 +191,7 @@ function createWindows(): void {
     minHeight: 640,
     show: false,
     frame: false,
-    backgroundColor: '#F6F2E8',
+    backgroundColor: hubBackground(),
     title: 'reverseuno',
     icon: resourcePath('icon.png'),
     webPreferences: { ...common, spellcheck: false }
@@ -194,7 +211,9 @@ function createWindows(): void {
     fullscreenable: false,
     skipTaskbar: true,
     alwaysOnTop: true,
-    focusable: true,
+    // Never take keyboard focus: the paste has to land in the window the user
+    // was dictating into. The Hyprland rule adds no_focus for the same reason.
+    focusable: false,
     hasShadow: false,
     title: 'reverseuno-overlay',
     icon: resourcePath('icon.png'),
@@ -224,7 +243,10 @@ function createWindows(): void {
     if (isQuitting) return
     event.preventDefault()
     hub?.hide()
+    void ensureTray()
   })
+  hub.on('show', () => updateTrayMenu())
+  hub.on('hide', () => updateTrayMenu())
 
   overlay.on('closed', () => {
     overlay = null
@@ -245,6 +267,7 @@ function showHub(page = 'home'): void {
   if (hub.isMinimized()) hub.restore()
   hub.show()
   hub.focus()
+  updateTrayMenu()
   if (hub.webContents.isLoading()) return
   hub.webContents.send('hub:page', page)
 }
@@ -277,7 +300,7 @@ function setLogin(enabled: boolean): void {
       '[Desktop Entry]',
       'Type=Application',
       'Name=reverseuno',
-      'Comment=Hold Right Cmd to dictate',
+      'Comment=Hold Right Super to dictate',
       `Exec=${launchCommand()} --hidden`,
       'Terminal=false',
       'X-GNOME-Autostart-enabled=true',
@@ -285,6 +308,11 @@ function setLogin(enabled: boolean): void {
     ].join('\n'),
     { mode: 0o644 }
   )
+}
+
+function hubBackground(): string {
+  const palette = store.settings.appearance.theme === 'omarchy' ? readOmarchyTheme() : null
+  return palette?.background ?? '#F4EFE4'
 }
 
 function bootstrap(): Bootstrap {
@@ -300,7 +328,8 @@ function bootstrap(): Bootstrap {
     version: app.getVersion(),
     platform: `${process.platform} ${process.arch}`,
     control: { port: control?.port ?? CONTROL_PORT, running: Boolean(control?.port) },
-    paths: { config: userData, history: storePath, log: getLogPath() }
+    paths: { config: userData, history: storePath, log: getLogPath(), cli: join(homedir(), '.local/bin/reverseuno') },
+    theme: readOmarchyTheme()
   }
 }
 
@@ -319,6 +348,24 @@ function createEngine(): void {
   })
 }
 
+function requestDevices(): Promise<AudioDevice[]> {
+  if (!capture || capture.isDestroyed()) {
+    return Promise.resolve([{ id: '', label: 'System default', isDefault: true }])
+  }
+  return new Promise<AudioDevice[]>((resolve) => {
+    const timer = setTimeout(() => {
+      deviceResolvers = deviceResolvers.filter((item) => item !== done)
+      resolve([{ id: '', label: 'System default', isDefault: true }])
+    }, 5000)
+    const done = (devices: AudioDevice[]) => {
+      clearTimeout(timer)
+      resolve(devices)
+    }
+    deviceResolvers.push(done)
+    sendCapture('capture:list-devices')
+  })
+}
+
 function createControl(): void {
   control = new ControlServer(userData, {
     state: () => engine.getState(),
@@ -332,6 +379,12 @@ function createControl(): void {
       return { ok: true }
     },
     paste: (text) => engine.paste(text),
+    devices: () => requestDevices(),
+    setDevice: async (id) => {
+      const settings = store.updateSettings({ audio: { inputDevice: id } })
+      sendHub('refresh')
+      return settings.audio
+    },
     quit: async () => {
       quitApp()
       return { ok: true }
@@ -373,21 +426,10 @@ function registerIpc(): void {
     return { ...result, latencyMs: Date.now() - started }
   })
 
-  ipcMain.handle('devices:list', async (): Promise<AudioDevice[]> => {
-    if (!capture || capture.isDestroyed()) return [{ id: '', label: 'System default', isDefault: true }]
-    return new Promise<AudioDevice[]>((resolve) => {
-      const timer = setTimeout(() => {
-        deviceResolvers = deviceResolvers.filter((item) => item !== done)
-        resolve([{ id: '', label: 'System default', isDefault: true }])
-      }, 1600)
-      const done = (devices: AudioDevice[]) => {
-        clearTimeout(timer)
-        resolve(devices)
-      }
-      deviceResolvers.push(done)
-      sendCapture('capture:list-devices')
-    })
-  })
+  ipcMain.handle('devices:list', () => requestDevices())
+  ipcMain.handle('models:list', (_, kind: ModelKind) =>
+    listOpenRouterModels(kind === 'stt' ? 'stt' : 'format', store.settings.format.baseUrl)
+  )
 
   ipcMain.handle('history:update', (_, id: string, text: string) => {
     const result = store.recordEdit(id, text)
@@ -454,17 +496,10 @@ function registerIpc(): void {
     sendHub('refresh')
   })
 
-  ipcMain.handle('dictation:start', () => engine.start(true))
-  ipcMain.handle('dictation:stop', () => engine.stop())
-  ipcMain.handle('dictation:toggle', () => engine.toggle())
+  ipcMain.handle('dictation:toggle', (_, insert?: boolean) => engine.toggle(insert !== false))
   ipcMain.handle('dictation:cancel', () => engine.cancel())
   ipcMain.handle('dictation:paste', (_, text: string) => engine.paste(text))
 
-  ipcMain.handle('overlay:action', async (_, action: 'cancel' | 'confirm') => {
-    if (action === 'cancel') await engine.cancel()
-    else await engine.stop()
-  })
-  ipcMain.handle('overlay:mouse', (_, enabled: boolean) => setOverlayMouse(Boolean(enabled)))
 
   ipcMain.handle('app:open-external', async (_, url: string) => {
     if (/^https?:/i.test(url)) await shell.openExternal(url)
@@ -495,7 +530,10 @@ function registerIpc(): void {
     if (hub.isMaximized()) hub.unmaximize()
     else hub.maximize()
   })
-  ipcMain.on('window:close', () => hub?.hide())
+  ipcMain.on('window:close', () => {
+    hub?.hide()
+    void ensureTray()
+  })
   ipcMain.handle('window:open-hub', (_, page?: string) => showHub(page || 'home'))
 
   ipcMain.on('capture:ready', (_, data: { sampleRate: number }) => void engine.onCaptureReady(data))
@@ -506,6 +544,7 @@ function registerIpc(): void {
     engine.onCaptureDone(data)
   })
   ipcMain.on('capture:error', (_, message: string) => engine.onCaptureError(message))
+  ipcMain.on('capture:info', (_, message: string) => log.info('[capture]', message))
   ipcMain.on('capture:devices', (_, devices: AudioDevice[]) => {
     const resolvers = deviceResolvers
     deviceResolvers = []
@@ -513,26 +552,101 @@ function registerIpc(): void {
   })
 }
 
-function createTray(): void {
+function updateTrayMenu(): void {
+  if (!tray || tray.isDestroyed()) return
+  const isVisible = Boolean(hub && !hub.isDestroyed() && hub.isVisible())
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: isVisible ? 'Hide reverseuno' : 'Open reverseuno',
+      click: () => {
+        if (isVisible) hub?.hide()
+        else showHub('home')
+      }
+    },
+    // Mouse-started sessions have no key release, so this item starts and stops.
+    { label: 'Start / stop dictation', click: () => void engine?.toggle(true) },
+    { label: 'Cancel dictation', click: () => void engine?.cancel() },
+    { type: 'separator' },
+    { label: 'Settings', click: () => showHub('settings') },
+    { label: 'Quit', click: () => quitApp() }
+  ])
+  tray.setContextMenu(contextMenu)
+}
+
+function createTray(): boolean {
   const iconPath = resourcePath('tray.png')
-  if (!existsSync(iconPath)) return
-  try {
-    tray = new Tray(nativeImage.createFromPath(iconPath))
-    tray.setToolTip('reverseuno — Right Cmd to dictate')
-    tray.setContextMenu(
-      Menu.buildFromTemplate([
-        { label: 'Open reverseuno', click: () => showHub('home') },
-        { label: 'Start dictation', click: () => void engine.start(true) },
-        { label: 'Cancel dictation', click: () => void engine.cancel() },
-        { type: 'separator' },
-        { label: 'Settings', click: () => showHub('settings') },
-        { label: 'Quit', click: () => quitApp() }
-      ])
-    )
-    tray.on('click', () => showHub('home'))
-  } catch (error) {
-    log.warn('[tray] failed', String(error))
+  if (!existsSync(iconPath)) {
+    log.warn('[tray] icon not found at', iconPath)
+    return false
   }
+  try {
+    if (tray && !tray.isDestroyed()) {
+      tray.destroy()
+    }
+    tray = new Tray(nativeImage.createFromPath(iconPath))
+    tray.setToolTip('reverseuno — Right Super to dictate')
+    updateTrayMenu()
+    tray.on('click', () => {
+      if (hub && !hub.isDestroyed() && hub.isVisible()) {
+        hub.hide()
+      } else {
+        showHub('home')
+      }
+    })
+    log.info('[tray] created successfully')
+    return true
+  } catch (error) {
+    log.warn('[tray] failed to create tray', String(error))
+    tray = null
+    return false
+  }
+}
+
+type TrayStatus = 'registered' | 'missing' | 'no-watcher'
+
+// Waybar hosts the StatusNotifierWatcher on Omarchy. If it starts after us, or
+// restarts, our item is gone and the tray has to be recreated. If there is no
+// watcher at all, recreating is pointless; wait for one to appear.
+function trayStatus(): Promise<TrayStatus> {
+  return new Promise((resolve) => {
+    const proc = spawn('busctl', [
+      '--user',
+      'get-property',
+      'org.kde.StatusNotifierWatcher',
+      '/StatusNotifierWatcher',
+      'org.kde.StatusNotifierWatcher',
+      'RegisteredStatusNotifierItems'
+    ])
+    let out = ''
+    proc.stdout.on('data', (chunk) => {
+      out += chunk.toString()
+    })
+    proc.on('close', (code) => {
+      if (code !== 0) resolve('no-watcher')
+      else resolve(out.includes(`StatusNotifierItem-${process.pid}-`) ? 'registered' : 'missing')
+    })
+    // No busctl: cannot tell, so leave the tray alone.
+    proc.on('error', () => resolve('registered'))
+  })
+}
+
+let trayCheck: Promise<void> | null = null
+
+function ensureTray(): Promise<void> {
+  // Coalesce: the hub close handler and the timer can both ask at once.
+  trayCheck ??= (async () => {
+    if (!tray || tray.isDestroyed()) {
+      createTray()
+      return
+    }
+    if ((await trayStatus()) === 'missing') {
+      log.info('[tray] item missing from the watcher; recreating')
+      createTray()
+    }
+  })().finally(() => {
+    trayCheck = null
+  })
+  return trayCheck
 }
 
 async function start(): Promise<void> {
@@ -541,6 +655,12 @@ async function start(): Promise<void> {
   registerIpc()
   createControl()
   createTray()
+  setInterval(() => void ensureTray(), 10_000).unref()
+  const stopThemeWatch = watchOmarchyTheme((palette) => {
+    log.info('[theme] omarchy theme changed', { name: palette?.name ?? null })
+    sendHub('theme', palette)
+  })
+  app.once('will-quit', stopThemeWatch)
 
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
     callback(permission === 'media')
@@ -580,14 +700,16 @@ async function start(): Promise<void> {
   log.info('[app] ready', { version: app.getVersion(), userData, dev: isDev })
 }
 
-app.whenReady().then(start).catch((error) => {
-  log.error('[app] failed to start', String(error))
-  app.quit()
-})
+if (gotLock) {
+  app.whenReady().then(start).catch((error) => {
+    log.error('[app] failed to start', String(error))
+    app.quit()
+  })
+}
 
 app.on('activate', () => showHub())
 app.on('window-all-closed', () => {
-  // Stay alive: Right Cmd is the primary surface, the hub is optional.
+  // Stay alive: Right Super is the primary surface, the hub is optional.
 })
 
 app.on('before-quit', () => {

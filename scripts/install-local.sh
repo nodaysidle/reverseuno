@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install the local CLI, desktop entry and Right Cmd Hyprland bind.
+# Install the local CLI, desktop entry and Right Super Hyprland bind.
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -17,7 +17,7 @@ cat > "$HOME/.local/share/applications/reverseuno.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=reverseuno
-Comment=Hold Right Cmd to dictate
+Comment=Hold Right Super to dictate
 Exec=$ELECTRON $REPO_DIR
 Icon=$REPO_DIR/resources/icon.png
 Terminal=false
@@ -33,4 +33,4 @@ echo
 echo "Next:"
 echo "  1. npm run build"
 echo "  2. npm start            # or launch reverseuno from your app menu"
-echo "  3. hold Right Cmd and speak"
+echo "  3. hold Right Super and speak"

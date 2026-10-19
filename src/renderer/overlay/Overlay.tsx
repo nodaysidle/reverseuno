@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, Check, Command, Mic, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { AlertCircle, Check, Mic } from 'lucide-react'
 import type { StateEvent } from '@shared/types'
 import { formatClock, friendlyApp, truncate } from './lib'
 
-const BAR_COUNT = 34
+// 24 bars at the minimum 1.5 px plus 2.5 px gaps fit the 104 px slot; 34 overflowed
+// into the status text.
+const BAR_COUNT = 24
 
 function Waveform({ level, active, phase }: { level: number; active: boolean; phase: number }) {
   const bars = useMemo(() => Array.from({ length: BAR_COUNT }, (_, index) => index), [])
@@ -30,6 +32,33 @@ function Waveform({ level, active, phase }: { level: number; active: boolean; ph
   )
 }
 
+let audio: AudioContext | null = null
+
+// Two short sine blips: rising when the mic opens, falling when the text lands,
+// low when something failed. Generated, so there are no sound files to ship.
+function cue(kind: 'start' | 'done' | 'error'): void {
+  try {
+    audio ??= new AudioContext()
+    const notes = kind === 'start' ? [660, 880] : kind === 'done' ? [880, 660] : [330, 247]
+    const t0 = audio.currentTime + 0.01
+    notes.forEach((frequency, index) => {
+      const osc = audio!.createOscillator()
+      const gain = audio!.createGain()
+      osc.type = 'sine'
+      osc.frequency.value = frequency
+      const start = t0 + index * 0.075
+      gain.gain.setValueAtTime(0.0001, start)
+      gain.gain.exponentialRampToValueAtTime(0.12, start + 0.012)
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.07)
+      osc.connect(gain).connect(audio!.destination)
+      osc.start(start)
+      osc.stop(start + 0.08)
+    })
+  } catch {
+    // Audio is a nicety; never let it break the overlay.
+  }
+}
+
 function statusLabel(event: StateEvent): string {
   switch (event.state) {
     case 'listening':
@@ -39,15 +68,15 @@ function statusLabel(event: StateEvent): string {
     case 'formatting':
       return 'Polishing'
     case 'inserting':
-      return 'Inserting'
+      return 'Pasting'
     case 'done':
-      return event.text ? 'Pasted' : 'Saved'
+      return event.message || (event.text ? 'Pasted' : 'Saved')
     case 'error':
       return event.message || 'Something went wrong'
     case 'cancelled':
       return 'Cancelled'
     default:
-      return 'Right ⌘ to talk'
+      return 'Hold Right Super to talk'
   }
 }
 
@@ -56,6 +85,16 @@ export function Overlay() {
   const [level, setLevel] = useState(0)
   const [phase, setPhase] = useState(0)
   const [now, setNow] = useState(Date.now())
+  const previous = useRef<StateEvent['state']>('idle')
+
+  useEffect(() => {
+    const before = previous.current
+    previous.current = state.state
+    if (!state.sounds || before === state.state) return
+    if (state.state === 'listening' && before !== 'listening') cue('start')
+    else if (state.state === 'done' && state.text) cue('done')
+    else if (state.state === 'error') cue('error')
+  }, [state.state, state.sounds, state.text])
 
   useEffect(() => {
     void window.api.state().then(setState)
@@ -100,8 +139,8 @@ export function Overlay() {
         <button
           type="button"
           className="rest-pill"
-          onClick={() => void window.api.dictationStart()}
-          title="Start dictation (Right ⌘)"
+          onClick={() => void window.api.dictationToggle(true)}
+          title="Start dictation (hold Right Super)"
         >
           <span className="rest-mark">
             <span />
@@ -110,7 +149,7 @@ export function Overlay() {
             <span />
             <span />
           </span>
-          <span className="rest-label">Right ⌘ to talk</span>
+          <span className="rest-label">Hold Right Super to talk</span>
           <Mic size={14} />
         </button>
       </div>
@@ -147,35 +186,26 @@ export function Overlay() {
             ) : null}
           </div>
           <div className="pill-preview">
-            {preview ? truncate(preview, 96) : active ? 'Speak naturally — release when you are done.' : ' '}
+            {preview
+              ? truncate(preview, 96)
+              : active
+                ? state.insert === false
+                  ? 'Speak naturally. Stop from reverseuno to save it.'
+                  : 'Speak naturally. Release to paste.'
+                : ' '}
           </div>
         </div>
 
         {elapsed > 0 ? <span className="pill-timer">{formatClock(elapsed)}</span> : null}
 
-        {active ? (
-          <div className="pill-actions">
-            <button
-              type="button"
-              className="pill-btn cancel"
-              onClick={() => void window.api.overlayAction('cancel')}
-              title="Cancel (Esc)"
-            >
-              <X size={15} />
-            </button>
-            <button
-              type="button"
-              className="pill-btn confirm"
-              onClick={() => void window.api.overlayAction('confirm')}
-              title="Finish and paste"
-            >
-              <Check size={15} />
-            </button>
-          </div>
-        ) : processing ? (
-          <div className="pill-processing-note">
-            <Command size={11} />
-            <span>{state.state === 'formatting' ? 'cleanup' : state.state === 'inserting' ? 'paste' : 'audio'}</span>
+        {active && state.insert !== false ? (
+          // The overlay is click-through while recording so it can never take focus
+          // from the target window; the keyboard is the whole interface.
+          <div className="pill-keys" aria-label="Release Right Super to paste, Super+Delete to cancel">
+            <span className="pill-key">Release</span>
+            <span className="pill-key-label">paste</span>
+            <span className="pill-key">Super Del</span>
+            <span className="pill-key-label">cancel</span>
           </div>
         ) : null}
       </div>

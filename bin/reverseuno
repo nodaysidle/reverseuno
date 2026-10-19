@@ -9,33 +9,33 @@ if [[ ! -f "$CONFIG" ]]; then
   exit 1
 fi
 
-read -r PORT TOKEN < <(python3 - "$CONFIG" <<'PY'
-import json, sys
-with open(sys.argv[1], encoding="utf-8") as handle:
-    data = json.load(handle)
-print(data["port"], data["token"])
-PY
-)
+# This runs on every Right Super press and release, so keep it to jq + curl:
+# starting Python twice per keypress added noticeable latency to push-to-talk.
+command -v jq >/dev/null || { echo "reverseuno: jq is required (pacman -S jq)" >&2; exit 1; }
+read -r PORT TOKEN < <(jq -r '"\(.port) \(.token)"' "$CONFIG")
 
 usage() {
   cat <<'EOF'
 usage: reverseuno <command> [args]
 
-  start              start listening (hold-to-talk press)
-  stop               stop listening, transcribe, format, paste
+  start              start listening (push-to-talk press)
+  stop               stop listening, transcribe, format, paste (release)
   toggle             start if idle, stop if listening
   cancel             discard the current recording
   state              print the current state as JSON
   health             check whether the app is reachable
   show [page]        open the hub (home, dictionary, snippets, style, settings)
+  devices            list audio input devices
+  device <id>        select an audio input by device id
   paste <text>       insert text at the focused cursor
   lang <code|cycle>  set the dictation language
   quit               quit reverseuno
 EOF
 }
 
-json() {
-  python3 -c 'import json,sys; print(json.dumps({"text": sys.argv[1]}))' "$1"
+# One-field JSON object with the value safely escaped: obj <key> <value>
+obj() {
+  jq -cn --arg k "$1" --arg v "$2" '{($k): $v}'
 }
 
 command="${1:-}"
@@ -51,10 +51,24 @@ case "$command" in
     method="GET"
     data=""
     ;;
+  devices)
+    method="GET"
+    path="/devices"
+    data=""
+    ;;
+  device)
+    id="${1:-}"
+    if [[ -z "$id" ]]; then
+      echo "usage: reverseuno device <id>" >&2
+      exit 2
+    fi
+    path="/device"
+    data=$(obj id "$id")
+    ;;
   show)
     page="${1:-home}"
     path="/show"
-    data=$(python3 -c 'import json,sys; print(json.dumps({"page": sys.argv[1]}))' "$page")
+    data=$(obj page "$page")
     ;;
   paste)
     text="${1:-}"
@@ -62,7 +76,7 @@ case "$command" in
       text="$(cat)"
     fi
     path="/paste"
-    data=$(json "$text")
+    data=$(obj text "$text")
     ;;
   lang)
     value="${1:-cycle}"
@@ -70,7 +84,7 @@ case "$command" in
     if [[ "$value" == "cycle" ]]; then
       data='{"cycle":true}'
     else
-      data=$(python3 -c 'import json,sys; print(json.dumps({"language": sys.argv[1]}))' "$value")
+      data=$(obj language "$value")
     fi
     ;;
   *)

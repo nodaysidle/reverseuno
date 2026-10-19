@@ -19,8 +19,11 @@ export interface AppRule {
 
 export interface Settings {
   stt: {
-    provider: 'deepgram'
+    provider: SttProvider
+    /** Deepgram model, used when provider is 'deepgram'. */
     model: string
+    /** OpenRouter transcription model id, used when provider is 'openrouter'. */
+    openrouterModel: string
     language: string
     smartFormat: boolean
     punctuate: boolean
@@ -30,7 +33,7 @@ export interface Settings {
   }
   format: {
     enabled: boolean
-    provider: 'openrouter' | 'deepseek' | 'openai-compatible'
+    provider: 'openrouter'
     model: string
     baseUrl: string
     cleanup: CleanupLevel
@@ -64,10 +67,6 @@ export interface Settings {
     hideAfterMs: number
     errorHideAfterMs: number
   }
-  hotkey: {
-    display: string
-    hold: boolean
-  }
   history: {
     maxEntries: number
     autoLearn: boolean
@@ -76,10 +75,34 @@ export interface Settings {
     launchAtLogin: boolean
     openHubOnStart: boolean
   }
-  ui: {
-    theme: 'cream'
-    reduceMotion: boolean
+  appearance: {
+    /** 'omarchy' follows the active Omarchy theme; 'paper' is the built-in light look. */
+    theme: 'omarchy' | 'paper'
   }
+}
+
+/** The colors the hub needs, taken from Omarchy's current colors.toml. */
+export interface ThemePalette {
+  name: string
+  mode: 'light' | 'dark'
+  background: string
+  foreground: string
+  accent: string
+  muted: string
+  surface: string
+  deep: string
+  red: string
+  green: string
+  violet: string
+}
+
+export type SttProvider = 'deepgram' | 'openrouter'
+
+export type ModelKind = 'format' | 'stt'
+
+export interface ModelOption {
+  id: string
+  name: string
 }
 
 export interface DictationEntry {
@@ -152,7 +175,7 @@ export interface StoreData {
   suggestions: Suggestion[]
 }
 
-export type SecretName = 'deepgram' | 'openrouter' | 'deepseek' | 'xai' | 'typesafe'
+export type SecretName = 'deepgram' | 'openrouter'
 
 export interface SecretStatus {
   name: SecretName
@@ -181,6 +204,10 @@ export interface StateEvent {
   entryId?: string
   language?: string
   words?: number
+  /** False when the session saves to history instead of pasting (started from the hub). */
+  insert?: boolean
+  /** Overlay should play start/stop cues (settings.overlay.sounds). */
+  sounds?: boolean
 }
 
 export interface Bootstrap {
@@ -194,7 +221,9 @@ export interface Bootstrap {
   version: string
   platform: string
   control: { port: number; running: boolean }
-  paths: { config: string; history: string; log: string }
+  paths: { config: string; history: string; log: string; cli: string }
+  /** Null when Omarchy isn't installed or its colors can't be read. */
+  theme: ThemePalette | null
 }
 
 export interface ProviderTestResult {
@@ -209,12 +238,14 @@ export interface ReverseunoApi {
   onRefresh(callback: () => void): () => void
   onPage(callback: (page: string) => void): () => void
   onLevel(callback: (level: number) => void): () => void
+  onTheme(callback: (theme: ThemePalette | null) => void): () => void
   state(): Promise<StateEvent>
   updateSettings(patch: DeepPartial<Settings>): Promise<Settings>
   setSecret(name: SecretName, value: string): Promise<SecretStatus[]>
   clearSecret(name: SecretName): Promise<SecretStatus[]>
   testProvider(name: 'deepgram' | 'openrouter'): Promise<ProviderTestResult>
   listDevices(): Promise<AudioDevice[]>
+  listModels(kind: ModelKind): Promise<ModelOption[]>
   historyUpdate(id: string, text: string): Promise<{ entry: DictationEntry; suggestions: Suggestion[] }>
   historyDelete(id: string): Promise<void>
   historyClear(): Promise<void>
@@ -229,12 +260,9 @@ export interface ReverseunoApi {
   snippetDelete(id: string): Promise<void>
   suggestionAccept(id: string): Promise<void>
   suggestionDismiss(id: string): Promise<void>
-  dictationStart(): Promise<void>
-  dictationStop(): Promise<void>
-  dictationToggle(): Promise<void>
+  /** Start, or stop and finish. insert=false saves to history without pasting. */
+  dictationToggle(insert?: boolean): Promise<void>
   dictationCancel(): Promise<void>
-  overlayAction(action: 'cancel' | 'confirm'): Promise<void>
-  setOverlayMouse(enabled: boolean): Promise<void>
   setLogin(enabled: boolean): Promise<void>
   openExternal(url: string): Promise<void>
   exportData(): Promise<string | null>

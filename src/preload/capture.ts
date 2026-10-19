@@ -37,6 +37,7 @@ const captureApi = {
     return () => ipcRenderer.removeListener('capture:list-devices', listener)
   },
   ready: (sampleRate: number) => ipcRenderer.send('capture:ready', { sampleRate }),
+  info: (message: string) => ipcRenderer.send('capture:info', message),
   chunk: (pcm: ArrayBuffer, rms: number) => ipcRenderer.send('audio:chunk', pcm, rms),
   done: (durationMs: number, sampleRate: number, frames: number) =>
     ipcRenderer.send('capture:done', { durationMs, sampleRate, frames }),

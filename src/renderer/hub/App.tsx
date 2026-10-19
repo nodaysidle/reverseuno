@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AlertCircle, Check, Command, Info, X } from 'lucide-react'
-import type { Bootstrap, DictationEntry, StateEvent } from '@shared/types'
+import type { Bootstrap, DictationEntry, StateEvent, ThemePalette } from '@shared/types'
 import { Sidebar } from './Sidebar'
 import { Titlebar } from './Titlebar'
 import { Home } from './Home'
@@ -10,6 +10,7 @@ import { StylePage } from './StylePage'
 import { SettingsPage } from './SettingsPage'
 import { EntryDrawer } from './EntryDrawer'
 import { cx, type Page } from './lib'
+import { applyTheme } from './theme'
 
 type ToastTone = 'default' | 'success' | 'error'
 interface ToastItem {
@@ -77,7 +78,7 @@ function HelpModal({ onClose }: { onClose: () => void }) {
             <ol>
               <li>Focus the text field where the words should land.</li>
               <li>
-                Hold <span className="kbd">Right ⌘</span>. The pill appears and the waveform moves.
+                Hold <span className="kbd">Right Super</span>. The pill appears and the waveform moves.
               </li>
               <li>Speak naturally. Release the key. The polished text is pasted at the cursor.</li>
             </ol>
@@ -86,20 +87,25 @@ function HelpModal({ onClose }: { onClose: () => void }) {
           <section>
             <h3>What leaves the machine</h3>
             <p>
-              Audio streams to Deepgram. The cleaned transcript goes to your formatter
-              (OpenRouter by default). If app context is on, only the window class and title are
+              Audio goes to your speech provider (Deepgram streams it; OpenRouter receives the
+              clip on release). The transcript goes to OpenRouter for formatting. If app context is on, only the window class and title are
               sent — never screen text, never screenshots.
             </p>
           </section>
 
           <section>
             <h3>The Hyprland bind</h3>
-            <p>Right Cmd is <span className="mono">Super_R</span>. The install script writes:</p>
-            <pre className="help-code">{`o.bind("Super_R", "reverseuno hold", "reverseuno start")
-o.bind("Super_R", "reverseuno release", "reverseuno stop", { release = true })`}</pre>
+            <p>
+              Right Super is <span className="mono">Super_R</span>.{' '}
+              <span className="mono">scripts/install-hyprland.py</span> writes:
+            </p>
+            <pre className="help-code">{`o.bind("Super_R", "reverseuno hold", "~/.local/bin/reverseuno start")
+o.bind("Super_R", "reverseuno release", "~/.local/bin/reverseuno stop", { release = true })
+o.bind("SUPER + Delete", "reverseuno cancel", "~/.local/bin/reverseuno cancel")`}</pre>
             <p className="muted small">
-              It also comments out the old WhisperBar bind on the same key so the two do not
-              double-fire.
+              It also adds overlay window rules (floating, pinned, never focused) and comments out
+              an old WhisperBar bind on the same key so the two do not double-fire. Running it again
+              updates the block in place.
             </p>
           </section>
 
@@ -107,16 +113,25 @@ o.bind("Super_R", "reverseuno release", "reverseuno stop", { release = true })`}
             <h3>If something feels off</h3>
             <ul>
               <li>No overlay: check that <span className="mono">hyprctl activewindow</span> works and the app is running.</li>
-              <li>Paste lands nowhere: switch Insertion → Mode to Type, or add a per-app rule.</li>
-              <li>Terminals: Shift+Insert is the default rule for Ghostty, kitty, Alacritty, foot and xterm.</li>
-              <li>No text: check the Deepgram key in Settings → Providers.</li>
+              <li>
+                Paste lands nowhere: reverseuno returns focus to the window you started in before
+                pasting. If that window closed, the text is left on your clipboard. Otherwise switch
+                Insertion → Mode to Type, or add a per-app rule.
+              </li>
+              <li>
+                Terminals: Shift+Insert is the default rule for Ghostty, kitty, Alacritty, foot and
+                xterm. Stock Ghostty maps Shift+Insert to the primary selection; add{' '}
+                <span className="mono">keybind = shift+insert=paste_from_clipboard</span> to its
+                config, or switch Insertion → Mode to Type.
+              </li>
+              <li>No text: check the speech provider's key in Settings → Providers.</li>
             </ul>
           </section>
         </div>
 
         <footer className="help-foot">
           <Command size={13} />
-          <span>Right ⌘ to talk. Release to write.</span>
+          <span>Hold Right Super to talk. Release to write.</span>
         </footer>
       </div>
     </div>
@@ -130,25 +145,32 @@ export function App() {
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const [drawerEntry, setDrawerEntry] = useState<DictationEntry | null>(null)
   const [helpOpen, setHelpOpen] = useState(false)
+  const [omarchy, setOmarchy] = useState<ThemePalette | null>(null)
 
   const refresh = useCallback(async () => {
     const next = await window.api.bootstrap()
     setData(next)
+    setOmarchy(next.theme)
   }, [])
 
   useEffect(() => {
     void refresh().then(() => window.api.state().then(setState))
     const offRefresh = window.api.onRefresh(() => void refresh())
     const offState = window.api.onState((next) => setState(next))
+    const offTheme = window.api.onTheme(setOmarchy)
     const offPage = window.api.onPage((next) => {
       if (PAGES.includes(next as Page)) setPage(next as Page)
     })
     return () => {
       offRefresh()
       offState()
+      offTheme()
       offPage()
     }
   }, [refresh])
+
+  const followOmarchy = data?.settings.appearance.theme === 'omarchy'
+  useEffect(() => applyTheme(followOmarchy ? omarchy : null), [followOmarchy, omarchy])
 
   const navigate = (next: Page) => {
     setPage(next)
@@ -188,7 +210,7 @@ export function App() {
           state={state}
           stats={data.stats}
           onHelp={() => setHelpOpen(true)}
-          onDictate={() => void window.api.dictationStart()}
+          onDictate={() => void window.api.dictationToggle(false)}
         />
         <main className="main">
           <div className="main-scroll">
@@ -210,7 +232,7 @@ export function App() {
             ) : null}
             {page === 'style' ? <StylePage data={data} refresh={refresh} toast={toast} /> : null}
             {page === 'settings' ? (
-              <SettingsPage data={data} refresh={refresh} toast={toast} />
+              <SettingsPage data={data} state={state} refresh={refresh} toast={toast} />
             ) : null}
           </div>
         </main>

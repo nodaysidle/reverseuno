@@ -65,6 +65,7 @@
   gap: 2.5px;
   height: 44px;
   width: 104px;
+  overflow: hidden;
 }
 .wave-bar {
   flex: 1;
@@ -136,45 +137,6 @@
   flex: 0 0 auto;
   padding-right: 2px;
 }
-.pill-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex: 0 0 auto;
-  -webkit-app-region: no-drag;
-}
-.pill-btn {
-  width: 32px;
-  height: 32px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 252, 235, 0.09);
-  background: rgba(255, 252, 235, 0.06);
-  color: rgba(255, 252, 235, 0.78);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition:
-    background 140ms var(--ease),
-    color 140ms var(--ease),
-    transform 140ms var(--ease);
-}
-.pill-btn:hover {
-  background: rgba(255, 252, 235, 0.14);
-  color: var(--cream);
-  transform: translateY(-1px);
-}
-.pill-btn.confirm {
-  background: var(--cream);
-  color: var(--ink);
-  border-color: transparent;
-}
-.pill-btn.confirm:hover {
-  background: #fff;
-}
-.pill-btn.cancel:hover {
-  background: rgba(244, 91, 54, 0.24);
-  color: #ffd1c4;
-}
 .pill-spinner {
   width: 24px;
   height: 24px;
@@ -199,18 +161,6 @@
 .pill-state-icon.is-error {
   background: rgba(244, 91, 54, 0.18);
   color: #ffb3a1;
-}
-.pill-processing-note {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 8px;
-  font-weight: 650;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: rgba(255, 252, 235, 0.34);
-  flex: 0 0 auto;
-  padding-right: 3px;
 }
 
 /* Resting pill */
@@ -299,4 +249,28 @@
   .rest-mark span {
     animation: none;
   }
+}
+
+.pill-keys {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  column-gap: 6px;
+  row-gap: 5px;
+  font-size: 10.5px;
+  color: rgba(255, 252, 235, 0.5);
+}
+.pill-key {
+  justify-self: end;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 252, 235, 0.16);
+  color: rgba(255, 252, 235, 0.82);
+  font-size: 10px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.pill-key-label {
+  white-space: nowrap;
 }

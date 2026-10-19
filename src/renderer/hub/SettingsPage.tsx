@@ -16,11 +16,15 @@ import type {
   AudioDevice,
   Bootstrap,
   CleanupLevel,
+  ModelKind,
+  ModelOption,
   PasteKeys,
   SecretName,
-  SecretStatus
+  SecretStatus,
+  StateEvent,
+  SttProvider
 } from '@shared/types'
-import { DEEPGRAM_MODELS, FORMAT_MODELS, LANGUAGE_OPTIONS } from '@shared/defaults'
+import { DEEPGRAM_MODELS, LANGUAGE_OPTIONS } from '@shared/defaults'
 import { copyText, cx, formatNumber } from './lib'
 import { Segmented, SettingRow, Section, Toggle } from './components'
 
@@ -71,16 +75,67 @@ function NumberField({
   )
 }
 
+// Free-text model id with suggestions from OpenRouter's live catalogue, so new
+// models work without an app update.
+function ModelField({
+  kind,
+  value,
+  onSave
+}: {
+  kind: ModelKind
+  value: string
+  onSave: (value: string) => void
+}) {
+  const [local, setLocal] = useState(value)
+  const [options, setOptions] = useState<ModelOption[]>([])
+  useEffect(() => setLocal(value), [value])
+  useEffect(() => {
+    let alive = true
+    void window.api.listModels(kind).then((models) => {
+      if (alive) setOptions(models)
+    })
+    return () => {
+      alive = false
+    }
+  }, [kind])
+  const listId = `models-${kind}`
+  const commit = () => {
+    const next = local.trim()
+    if (!next) setLocal(value)
+    else if (next !== value) onSave(next)
+  }
+  return (
+    <>
+      <input
+        className="input mono"
+        list={listId}
+        value={local}
+        spellCheck={false}
+        placeholder="provider/model"
+        onChange={(event) => setLocal(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') commit()
+        }}
+      />
+      <datalist id={listId}>
+        {options.map((option) => (
+          <option value={option.id} key={option.id}>
+            {option.name}
+          </option>
+        ))}
+      </datalist>
+    </>
+  )
+}
+
 function ProviderCard({
   name,
   title,
   description,
   status,
   placeholder,
-  model,
   models,
-  modelLabel,
-  onModel,
   extra,
   refresh,
   toast
@@ -90,10 +145,7 @@ function ProviderCard({
   description: string
   status: SecretStatus
   placeholder: string
-  model: string
-  models: readonly string[]
-  modelLabel: string
-  onModel: (value: string) => void
+  models: React.ReactNode
   extra?: React.ReactNode
   refresh: () => Promise<void>
   toast: (message: string, tone?: 'default' | 'success' | 'error') => void
@@ -173,16 +225,7 @@ function ProviderCard({
       </div>
 
       <div className="provider-options">
-        <label className="provider-option">
-          <span>{modelLabel}</span>
-          <select className="select" value={model} onChange={(event) => onModel(event.target.value)}>
-            {models.map((item) => (
-              <option value={item} key={item}>
-                {item}
-              </option>
-            ))}
-          </select>
-        </label>
+        {models}
         {extra}
       </div>
     </div>
@@ -275,10 +318,12 @@ function AppRulesEditor({
 
 export function SettingsPage({
   data,
+  state,
   refresh,
   toast
 }: {
   data: Bootstrap
+  state: StateEvent
   refresh: () => Promise<void>
   toast: (message: string, tone?: 'default' | 'success' | 'error') => void
 }) {
@@ -310,9 +355,13 @@ export function SettingsPage({
   const deepgram = data.secrets.find((item) => item.name === 'deepgram')!
   const openrouter = data.secrets.find((item) => item.name === 'openrouter')!
 
-  const bindings = `-- reverseuno: hold Right Cmd to dictate
-o.bind("Super_R", "reverseuno hold", "reverseuno start")
-o.bind("Super_R", "reverseuno release", "reverseuno stop", { release = true })`
+  // Absolute path: Hyprland's exec environment does not always have ~/.local/bin on PATH.
+  const cli = data.paths.cli
+  const bindings = `-- reverseuno: push to talk on Right Super
+o.bind("Super_R", "reverseuno hold", "${cli} start")
+o.bind("Super_R", "reverseuno release", "${cli} stop", { release = true })
+o.bind("SUPER + Delete", "reverseuno cancel", "${cli} cancel")`
+  const sttProvider = settings.stt.provider
 
   const copy = async (value: string, label: string) => {
     const ok = await copyText(value)
@@ -334,7 +383,7 @@ o.bind("Super_R", "reverseuno release", "reverseuno stop", { release = true })`
           <div className="eyebrow">Everything local, except audio in flight</div>
           <h1 className="page-title">Settings</h1>
           <p className="page-sub">
-            Right Cmd is the whole interface. Everything else is here when you want to tune it.
+            Right Super is the whole interface. Everything else is here when you want to tune it.
           </p>
         </div>
         <span className="pill pill-green">
@@ -350,8 +399,10 @@ o.bind("Super_R", "reverseuno release", "reverseuno stop", { release = true })`
           <div className="hotkey-visual">
             <span className="hotkey-key">⌘</span>
             <div>
-              <div className="hotkey-title">Right Command</div>
-              <div className="hotkey-sub">Hold to talk, release to paste. Super_R in Hyprland.</div>
+              <div className="hotkey-title">Right Super</div>
+              <div className="hotkey-sub">
+                Hold to talk, release to paste. Super+Delete cancels. Super_R in Hyprland.
+              </div>
             </div>
           </div>
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => void copy(bindings, 'bindings')}>
@@ -360,8 +411,9 @@ o.bind("Super_R", "reverseuno release", "reverseuno stop", { release = true })`
           </button>
         </div>
         <div className="bind-note">
-          Paste this into <span className="mono">~/.config/hypr/bindings.lua</span>. The install
-          script does it for you and comments out the old WhisperBar bind on the same key.
+          Paste this into <span className="mono">~/.config/hypr/bindings.lua</span>, or run{' '}
+          <span className="mono">scripts/install-hyprland.py</span>: it also adds the overlay
+          window rules and comments out an old WhisperBar bind on the same key.
         </div>
 
         <SettingRow
@@ -398,27 +450,73 @@ o.bind("Super_R", "reverseuno release", "reverseuno stop", { release = true })`
           </select>
         </SettingRow>
 
-        <SettingRow label="Test the pipeline" hint="Starts a real dictation and inserts at your cursor.">
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => void window.api.dictationStart()}>
-            <Mic size={13} /> Test dictation
+        <SettingRow
+          label="Test the pipeline"
+          hint="Records a real dictation through your providers and saves it to history. Click again to stop."
+        >
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => void window.api.dictationToggle(false)}
+            disabled={state.state !== 'idle' && state.state !== 'listening'}
+          >
+            <Mic size={13} /> {state.state === 'listening' ? 'Stop test' : 'Test dictation'}
           </button>
         </SettingRow>
       </Section>
 
       <Section
         title="Providers"
-        description="Audio goes to Deepgram. Text goes to your formatter. Keys never leave this machine except to those APIs."
+        description={
+          sttProvider === 'openrouter'
+            ? 'Audio and text both go to OpenRouter. Keys never leave this machine except to that API.'
+            : 'Audio goes to Deepgram. Text goes to OpenRouter. Keys never leave this machine except to those APIs.'
+        }
       >
+        <SettingRow
+          label="Speech-to-text"
+          hint={
+            sttProvider === 'openrouter'
+              ? 'One request on release; no live preview while you speak.'
+              : 'Streams while you speak, with a live preview in the overlay.'
+          }
+        >
+          <Segmented
+            value={sttProvider}
+            options={[
+              { value: 'deepgram', label: 'Deepgram' },
+              { value: 'openrouter', label: 'OpenRouter' }
+            ]}
+            onChange={(value) => void saveAndToast({ stt: { provider: value as SttProvider } }, 'Speech provider saved')}
+          />
+        </SettingRow>
+
         <ProviderCard
           name="deepgram"
           title="Deepgram"
-          description="Streaming Nova-3 speech-to-text, 16 kHz linear PCM."
+          description={
+            sttProvider === 'deepgram'
+              ? 'Streaming speech-to-text, 16 kHz linear PCM. In use.'
+              : 'Not used while OpenRouter handles speech-to-text.'
+          }
           status={deepgram}
           placeholder="DEEPGRAM_API_KEY"
-          model={settings.stt.model}
-          models={DEEPGRAM_MODELS}
-          modelLabel="Speech model"
-          onModel={(value) => void save({ stt: { model: value } })}
+          models={
+            <label className="provider-option">
+              <span>Speech model</span>
+              <select
+                className="select"
+                value={settings.stt.model}
+                onChange={(event) => void save({ stt: { model: event.target.value } })}
+              >
+                {DEEPGRAM_MODELS.map((item) => (
+                  <option value={item} key={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </label>
+          }
           refresh={refresh}
           toast={toast}
           extra={
@@ -438,13 +536,35 @@ o.bind("Super_R", "reverseuno release", "reverseuno stop", { release = true })`
         <ProviderCard
           name="openrouter"
           title="OpenRouter"
-          description="The formatting layer. One chat completion per dictation, with a short timeout."
+          description={
+            sttProvider === 'openrouter'
+              ? 'Speech-to-text and formatting. One transcription and one chat completion per dictation.'
+              : 'The formatting layer. One chat completion per dictation, with a short timeout.'
+          }
           status={openrouter}
           placeholder="OPENROUTER_API_KEY"
-          model={settings.format.model}
-          models={FORMAT_MODELS}
-          modelLabel="Formatter model"
-          onModel={(value) => void save({ format: { model: value } })}
+          models={
+            <>
+              {sttProvider === 'openrouter' ? (
+                <label className="provider-option">
+                  <span>Speech model</span>
+                  <ModelField
+                    kind="stt"
+                    value={settings.stt.openrouterModel}
+                    onSave={(value) => void saveAndToast({ stt: { openrouterModel: value } }, 'Speech model saved')}
+                  />
+                </label>
+              ) : null}
+              <label className="provider-option">
+                <span>Formatter model</span>
+                <ModelField
+                  kind="format"
+                  value={settings.format.model}
+                  onSave={(value) => void saveAndToast({ format: { model: value } }, 'Formatter model saved')}
+                />
+              </label>
+            </>
+          }
           refresh={refresh}
           toast={toast}
           extra={
@@ -461,8 +581,10 @@ o.bind("Super_R", "reverseuno release", "reverseuno stop", { release = true })`
 
         <div className="provider-note">
           <strong>Fallback behaviour.</strong> If the formatter times out or errors, the cleaned raw
-          transcript is inserted instead. If the streaming socket fails, the whole recording is sent
-          as one batch request on stop.
+          transcript is inserted instead.{' '}
+          {sttProvider === 'deepgram'
+            ? 'If the streaming socket fails, the whole recording is sent as one batch request on stop.'
+            : 'OpenRouter transcription has no live preview; the overlay shows the text once it is back.'}
         </div>
       </Section>
 
@@ -528,6 +650,26 @@ o.bind("Super_R", "reverseuno release", "reverseuno stop", { release = true })`
         </div>
       </Section>
 
+      <Section title="Appearance" description="How the hub looks.">
+        <SettingRow
+          label="Theme"
+          hint={
+            data.theme
+              ? `Omarchy follows your current theme (${data.theme.name}) and switches with it.`
+              : 'No Omarchy theme found, so the hub uses Paper.'
+          }
+        >
+          <Segmented
+            value={settings.appearance.theme}
+            options={[
+              { value: 'omarchy', label: 'Omarchy' },
+              { value: 'paper', label: 'Paper' }
+            ]}
+            onChange={(value) => void save({ appearance: { theme: value } })}
+          />
+        </SettingRow>
+      </Section>
+
       <Section title="Overlay" description="The Flow Bar, our way.">
         <SettingRow label="Show at rest" hint="A small pill stays visible when nothing is happening.">
           <Toggle
@@ -536,7 +678,7 @@ o.bind("Super_R", "reverseuno release", "reverseuno stop", { release = true })`
             onChange={(value) => void save({ overlay: { showAtRest: value } })}
           />
         </SettingRow>
-        <SettingRow label="Position" hint="Bottom centre by default. Follows the cursor's display.">
+        <SettingRow label="Position" hint="Centred on the cursor's display. Placed through Hyprland on Wayland.">
           <select
             className="select"
             value={settings.overlay.position}
@@ -643,7 +785,7 @@ o.bind("Super_R", "reverseuno release", "reverseuno stop", { release = true })`
             onChange={(value) => void save({ system: { openHubOnStart: value } })}
           />
         </SettingRow>
-        <SettingRow label="Quit reverseuno" hint="Right Cmd stops working until you start it again.">
+        <SettingRow label="Quit reverseuno" hint="Right Super stops working until you start it again.">
           <button type="button" className="btn btn-danger btn-sm" onClick={() => void window.api.quit()}>
             Quit
           </button>

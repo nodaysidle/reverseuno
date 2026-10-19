@@ -79,12 +79,8 @@ function cleanResponse(raw: string): string {
   return text
 }
 
-function endpoint(settings: Settings): { url: string; keyName: 'openrouter' | 'deepseek' } {
-  if (settings.format.provider === 'deepseek') {
-    return { url: 'https://api.deepseek.com/v1/chat/completions', keyName: 'deepseek' }
-  }
-  const base = (settings.format.baseUrl || 'https://openrouter.ai/api/v1').replace(/\/+$/, '')
-  return { url: `${base}/chat/completions`, keyName: 'openrouter' }
+export function openRouterBase(settings: Settings): string {
+  return (settings.format.baseUrl || 'https://openrouter.ai/api/v1').replace(/\/+$/, '')
 }
 
 export interface FormatResult {
@@ -118,15 +114,8 @@ export async function formatTranscript(
     includeAppContext: settings.format.includeAppContext
   })
 
-  const { url } = endpoint(settings)
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${apiKey}`,
-    'Content-Type': 'application/json'
-  }
-  if (settings.format.provider === 'openrouter') {
-    headers['HTTP-Referer'] = 'https://github.com/nodaysidle/reverseuno'
-    headers['X-Title'] = 'reverseuno'
-  }
+  const url = `${openRouterBase(settings)}/chat/completions`
+  const headers = openRouterHeaders(apiKey)
 
   try {
     const response = await fetch(url, {
@@ -177,13 +166,23 @@ export async function formatTranscript(
   }
 }
 
+export function openRouterHeaders(apiKey: string): Record<string, string> {
+  return {
+    Authorization: `Bearer ${apiKey}`,
+    'Content-Type': 'application/json',
+    'HTTP-Referer': 'https://github.com/nodaysidle/reverseuno',
+    'X-Title': 'reverseuno'
+  }
+}
+
 export async function validateOpenRouterKey(
   apiKey: string,
   baseUrl = 'https://openrouter.ai/api/v1'
 ): Promise<{ ok: boolean; message: string }> {
   if (!apiKey) return { ok: false, message: 'No OpenRouter key set' }
   try {
-    const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/models`, {
+    // /models is public; /key is the endpoint that actually checks the key.
+    const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/key`, {
       headers: { Authorization: `Bearer ${apiKey}` },
       signal: AbortSignal.timeout(8000)
     })

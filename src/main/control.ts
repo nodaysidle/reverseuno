@@ -14,6 +14,8 @@ export interface ControlHandlers {
   language(language?: string, cycle?: boolean): Promise<unknown>
   show(page?: string): Promise<unknown>
   paste(text: string): Promise<unknown>
+  devices(): Promise<unknown>
+  setDevice(id: string): Promise<unknown>
   quit(): Promise<unknown>
 }
 
@@ -29,6 +31,7 @@ const MAX_BODY = 1024 * 1024
 export class ControlServer {
   private server: Server | null = null
   private info: ControlInfo | null = null
+  private heartbeat: NodeJS.Timeout | null = null
   private readonly token = randomBytes(32).toString('hex')
   private readonly file: string
 
@@ -48,13 +51,14 @@ export class ControlServer {
       try {
         await this.listen(port)
         this.info = { port, token: this.token, pid: process.pid, startedAt: Date.now() }
-        mkdirSync(dirname(this.file), { recursive: true })
-        writeFileSync(this.file, JSON.stringify(this.info, null, 2), { mode: 0o600 })
-        try {
-          chmodSync(this.file, 0o600)
-        } catch {
-          // ignore
-        }
+        this.persist()
+        // Something (a cleanup script, a second instance's will-quit) can delete
+        // the file while we keep running; put it back, but do not rewrite it
+        // every tick.
+        this.heartbeat = setInterval(() => {
+          if (!existsSync(this.file)) this.persist()
+        }, 3000)
+        this.heartbeat.unref?.()
         log.info(`[control] listening on 127.0.0.1:${port}`)
         return port
       } catch (error) {
@@ -63,6 +67,17 @@ export class ControlServer {
       }
     }
     throw new Error('No free control port')
+  }
+
+  private persist(): void {
+    if (!this.info) return
+    try {
+      mkdirSync(dirname(this.file), { recursive: true })
+      writeFileSync(this.file, JSON.stringify(this.info, null, 2), { mode: 0o600 })
+      chmodSync(this.file, 0o600)
+    } catch (error) {
+      log.warn('[control] could not write control file', String(error))
+    }
   }
 
   private listen(port: number): Promise<void> {
@@ -130,6 +145,11 @@ export class ControlServer {
       return
     }
 
+    if (path === '/devices' && req.method === 'GET') {
+      this.send(res, 200, { ok: true, devices: await this.handlers.devices() })
+      return
+    }
+
     if (req.method !== 'POST') {
       this.send(res, 405, { ok: false, error: 'method not allowed' })
       return
@@ -172,6 +192,13 @@ export class ControlServer {
         }
         this.send(res, 200, { ok: true, result: await this.handlers.paste(body.text) })
         return
+      case '/device':
+        if (typeof body.id !== 'string') {
+          this.send(res, 400, { ok: false, error: 'id required' })
+          return
+        }
+        this.send(res, 200, { ok: true, result: await this.handlers.setDevice(body.id) })
+        return
       case '/quit':
         this.send(res, 200, { ok: true })
         setTimeout(() => void this.handlers.quit(), 50).unref?.()
@@ -182,6 +209,8 @@ export class ControlServer {
   }
 
   async stop(): Promise<void> {
+    if (this.heartbeat) clearInterval(this.heartbeat)
+    this.heartbeat = null
     if (this.server) {
       await new Promise<void>((resolve) => this.server?.close(() => resolve()))
       this.server = null

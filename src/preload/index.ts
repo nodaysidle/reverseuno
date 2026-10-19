@@ -17,7 +17,16 @@ function subscribe<T>(channel: string, callback: (payload: T) => void): () => vo
 
 const api: ReverseunoApi = {
   bootstrap: () => ipcRenderer.invoke('bootstrap'),
-  onState: (callback) => subscribe('overlay:state', callback),
+  // The engine sends state to the overlay and to the hub on separate channels;
+  // whichever window this preload runs in only receives its own.
+  onState: (callback) => {
+    const offOverlay = subscribe('overlay:state', callback)
+    const offHub = subscribe('hub:state', callback)
+    return () => {
+      offOverlay()
+      offHub()
+    }
+  },
   onRefresh: (callback) => {
     const listener = () => callback()
     ipcRenderer.on('hub:refresh', listener)
@@ -25,6 +34,7 @@ const api: ReverseunoApi = {
   },
   onPage: (callback) => subscribe('hub:page', callback),
   onLevel: (callback) => subscribe('overlay:level', callback),
+  onTheme: (callback) => subscribe('hub:theme', callback),
   state: () => ipcRenderer.invoke('state:get'),
 
   updateSettings: (patch: DeepPartial<Settings>) => ipcRenderer.invoke('settings:update', patch),
@@ -32,6 +42,7 @@ const api: ReverseunoApi = {
   clearSecret: (name: SecretName) => ipcRenderer.invoke('secret:clear', name),
   testProvider: (name) => ipcRenderer.invoke('provider:test', name),
   listDevices: (): Promise<AudioDevice[]> => ipcRenderer.invoke('devices:list'),
+  listModels: (kind) => ipcRenderer.invoke('models:list', kind),
 
   historyUpdate: (id: string, text: string) => ipcRenderer.invoke('history:update', id, text),
   historyDelete: (id: string) => ipcRenderer.invoke('history:delete', id),
@@ -55,12 +66,8 @@ const api: ReverseunoApi = {
   suggestionAccept: (id: string) => ipcRenderer.invoke('suggestion:accept', id),
   suggestionDismiss: (id: string) => ipcRenderer.invoke('suggestion:dismiss', id),
 
-  dictationStart: () => ipcRenderer.invoke('dictation:start'),
-  dictationStop: () => ipcRenderer.invoke('dictation:stop'),
-  dictationToggle: () => ipcRenderer.invoke('dictation:toggle'),
+  dictationToggle: (insert = true) => ipcRenderer.invoke('dictation:toggle', insert),
   dictationCancel: () => ipcRenderer.invoke('dictation:cancel'),
-  overlayAction: (action) => ipcRenderer.invoke('overlay:action', action),
-  setOverlayMouse: (enabled: boolean) => ipcRenderer.invoke('overlay:mouse', enabled),
 
   setLogin: (enabled: boolean) => ipcRenderer.invoke('app:set-login', enabled),
   openExternal: (url: string) => ipcRenderer.invoke('app:open-external', url),

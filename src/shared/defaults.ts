@@ -18,13 +18,25 @@ export const LANGUAGE_OPTIONS = [
 
 export const DEEPGRAM_MODELS = ['nova-3', 'nova-2', 'enhanced', 'base'] as const
 
+// Fallbacks for when OpenRouter's model list cannot be fetched. Settings loads
+// the live list and accepts any model id.
 export const FORMAT_MODELS = [
   'google/gemini-2.5-flash',
-  'openai/gpt-4.1-mini',
-  'openai/gpt-4o-mini',
-  'deepseek/deepseek-chat',
-  'anthropic/claude-3.5-haiku',
-  'meta-llama/llama-3.3-70b-instruct'
+  'google/gemini-3.8-flash',
+  'google/gemini-3.5-flash-lite',
+  'anthropic/claude-haiku-5.5',
+  'deepseek/deepseek-v4.1-flash',
+  'openai/gpt-4.1-mini'
+] as const
+
+export const OPENROUTER_STT_MODELS = [
+  'openai/gpt-4o-mini-transcribe',
+  'openai/gpt-4o-transcribe',
+  'openai/whisper-large-v3-turbo',
+  'openai/whisper-large-v3',
+  'elevenlabs/scribe-v2',
+  'mistralai/voxtral-mini-transcribe',
+  'deepgram/nova-3'
 ] as const
 
 export const DEFAULT_APP_RULES: AppRule[] = [
@@ -52,6 +64,7 @@ export const DEFAULT_SETTINGS: Settings = {
   stt: {
     provider: 'deepgram',
     model: 'nova-3',
+    openrouterModel: 'openai/gpt-4o-mini-transcribe',
     language: 'auto',
     smartFormat: true,
     punctuate: true,
@@ -95,10 +108,6 @@ export const DEFAULT_SETTINGS: Settings = {
     hideAfterMs: 1400,
     errorHideAfterMs: 4200
   },
-  hotkey: {
-    display: 'Right Cmd (Super_R)',
-    hold: true
-  },
   history: {
     maxEntries: 500,
     autoLearn: true
@@ -107,9 +116,8 @@ export const DEFAULT_SETTINGS: Settings = {
     launchAtLogin: false,
     openHubOnStart: true
   },
-  ui: {
-    theme: 'cream',
-    reduceMotion: false
+  appearance: {
+    theme: 'omarchy'
   }
 }
 

@@ -1,5 +1,4 @@
 import { spawn } from 'node:child_process'
-import { createHash } from 'node:crypto'
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { log } from './logger'
@@ -8,6 +7,7 @@ import type { AppRule, PasteKeys, Settings } from '@shared/types'
 export interface ActiveWindow {
   class: string
   title: string
+  address: string
   initialClass?: string
 }
 
@@ -113,16 +113,76 @@ export function runCommand(
 
 export async function getActiveWindow(): Promise<ActiveWindow> {
   const result = await runCommand('hyprctl', ['activewindow', '-j'], { timeoutMs: 1200 })
-  if (result.code !== 0) return { class: '', title: '' }
+  if (result.code !== 0) return { class: '', title: '', address: '' }
   try {
     const data = JSON.parse(result.stdout.toString('utf8')) as Partial<ActiveWindow>
     return {
       class: typeof data.class === 'string' ? data.class : '',
       title: typeof data.title === 'string' ? data.title : '',
+      address: typeof data.address === 'string' ? data.address : '',
       initialClass: typeof data.initialClass === 'string' ? data.initialClass : undefined
     }
   } catch {
-    return { class: '', title: '' }
+    return { class: '', title: '', address: '' }
+  }
+}
+
+// Hyprland 0.55+ with a Lua config evaluates `hyprctl dispatch` arguments as Lua;
+// older configs still take the classic dispatcher syntax. Try both.
+export async function focusWindow(address: string): Promise<boolean> {
+  if (!/^0x[0-9a-f]+$/i.test(address)) return false
+  const lua = await runCommand('hyprctl', ['dispatch', `hl.dsp.focus({ window = "address:${address}" })`], {
+    timeoutMs: 1200
+  })
+  if (lua.code === 0 && /^ok/i.test(lua.stdout.toString('utf8').trim())) return true
+  const legacy = await runCommand('hyprctl', ['dispatch', 'focuswindow', `address:${address}`], { timeoutMs: 1200 })
+  return legacy.code === 0 && /^ok/i.test(legacy.stdout.toString('utf8').trim())
+}
+
+// Wayland clients cannot position themselves, so Electron's setBounds() is
+// ignored. On Hyprland, ask the compositor to place our own window instead.
+export async function placeOwnWindow(title: string, x: number, y: number): Promise<boolean> {
+  const clients = await runCommand('hyprctl', ['clients', '-j'], { timeoutMs: 1200 })
+  if (clients.code !== 0) return false
+  let address = ''
+  try {
+    const list = JSON.parse(clients.stdout.toString('utf8')) as { address?: string; pid?: number; title?: string }[]
+    address = list.find((item) => item.pid === process.pid && item.title === title)?.address ?? ''
+  } catch {
+    return false
+  }
+  if (!/^0x[0-9a-f]+$/i.test(address)) return false
+  const lua = await runCommand(
+    'hyprctl',
+    ['dispatch', `hl.dsp.window.move({ x = ${Math.round(x)}, y = ${Math.round(y)}, window = "address:${address}" })`],
+    { timeoutMs: 1200 }
+  )
+  if (lua.code === 0 && /^ok/i.test(lua.stdout.toString('utf8').trim())) return true
+  const legacy = await runCommand(
+    'hyprctl',
+    ['dispatch', 'movewindowpixel', `exact ${Math.round(x)} ${Math.round(y)},address:${address}`],
+    { timeoutMs: 1200 }
+  )
+  return legacy.code === 0
+}
+
+// Make sure keystrokes land in the window the user was in when they pressed the
+// key. The overlay, a notification or follow_mouse can move focus while the
+// transcript is in flight.
+async function ensureTarget(target: ActiveWindow | undefined): Promise<{ active: ActiveWindow; error?: string }> {
+  const active = await getActiveWindow()
+  if (!target?.address || active.address === target.address) return { active }
+  log.info('[paste] focus moved; refocusing target', {
+    from: `${active.class} — ${active.title}`,
+    to: `${target.class} — ${target.title}`
+  })
+  await focusWindow(target.address)
+  await sleep(60)
+  const after = await getActiveWindow()
+  if (after.address === target.address) return { active: after }
+  return {
+    active: after,
+    error: `Could not return focus to ${target.class || 'the original window'}; the text is on your clipboard.`
   }
 }
 
@@ -206,22 +266,6 @@ export async function writeClipboardImage(image: Buffer): Promise<boolean> {
   return result.code === 0
 }
 
-function hash(buffer: Buffer): string {
-  return createHash('sha256').update(buffer).digest('hex')
-}
-
-async function clipboardMatches(snapshot: ClipboardSnapshot): Promise<boolean> {
-  if (snapshot.image) {
-    const current = await readClipboardImage()
-    return Boolean(current && hash(current) === hash(snapshot.image))
-  }
-  if (snapshot.text !== null) {
-    const current = await readClipboardText()
-    return current === snapshot.text
-  }
-  return false
-}
-
 export async function restoreClipboard(snapshot: ClipboardSnapshot): Promise<void> {
   if (snapshot.image) {
     await writeClipboardImage(snapshot.image)
@@ -279,7 +323,11 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-export async function insertText(text: string, settings: Settings): Promise<InsertResult> {
+export async function insertText(
+  text: string,
+  settings: Settings,
+  target?: ActiveWindow
+): Promise<InsertResult> {
   if (!text) {
     return {
       ok: false,
@@ -292,12 +340,25 @@ export async function insertText(text: string, settings: Settings): Promise<Inse
     }
   }
 
-  const active = await getActiveWindow()
-  const rule = resolvePasteRule(active.class, active.title, settings)
-
-  // Let the Right Cmd modifier come up before injecting a synthetic paste. Wispr's
+  // Let the Right Super modifier come up before injecting a synthetic paste. Wispr's
   // helper waits up to 2 s for held modifiers; we use a short configurable settle.
   await sleep(Math.max(0, settings.insert.waitForModifiersMs))
+
+  const { active, error: focusError } = await ensureTarget(target)
+  const rule = resolvePasteRule(active.class, active.title, settings)
+  if (focusError) {
+    // Never type into a window the user did not dictate into.
+    await writeClipboardText(text, settings.insert.copyToPrimary)
+    return {
+      ok: false,
+      method: settings.insert.mode,
+      keys: settings.insert.mode === 'paste' ? rule.keys : 'direct-type',
+      restoreDelayMs: 0,
+      appClass: active.class,
+      appTitle: active.title,
+      error: focusError
+    }
+  }
 
   if (settings.insert.mode === 'type') {
     const typed = await runCommand('wtype', ['-s', '2', '-'], {
@@ -344,7 +405,11 @@ export async function insertText(text: string, settings: Settings): Promise<Inse
 
   setTimeout(async () => {
     try {
-      if (await clipboardMatches(snapshot)) {
+      // Restore only if the clipboard still contains the text we inserted. The
+      // previous check compared against the snapshot, which is never true after
+      // a successful paste and left the dictated text sitting on the clipboard.
+      const current = await readClipboardText()
+      if (current === text) {
         await restoreClipboard(snapshot)
         log.debug('[paste] clipboard restored')
       } else {

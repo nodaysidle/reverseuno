@@ -5,7 +5,7 @@ export function Titlebar() {
     <div className="titlebar">
       <div className="titlebar-drag">
         <span className="titlebar-hint">
-          Hold <span className="kbd">Right ⌘</span> and speak. Release to paste.
+          Hold <span className="kbd">Right Super</span> and speak. Release to paste.
         </span>
       </div>
       <div className="window-controls">

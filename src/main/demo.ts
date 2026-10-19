@@ -43,7 +43,7 @@ const DEMO: { text: string; raw: string; app: string; title: string; hoursAgo: n
     seconds: 7.3
   },
   {
-    text: 'Draft the release note: Right Cmd to talk, release to paste. No window switching, no copy-paste dance.',
+    text: 'Draft the release note: Right Super to talk, release to paste. No window switching, no copy-paste dance.',
     raw: 'draft the release note right cmd to talk release to paste no window switching no copy paste dance',
     app: 'Notion',
     title: 'Release notes',
