@@ -164,6 +164,43 @@ describe('dictation engine', () => {
     await engine.cancel()
   })
 
+  it('keeps the audio that arrives after key-up and pastes once', async () => {
+    const openrouter = await import('../src/main/stt/openrouter')
+    await record()
+    const stopping = engine.stop()
+    engine.onChunk(Buffer.alloc(1280), 0.05) // the tail: the key is up but the mic is still open
+    await stopping
+
+    const clip = vi.mocked(openrouter.transcribeOpenRouter).mock.calls[0][1] as Buffer
+    expect(clip.length).toBe(26 * 1280)
+    expect(paste.insertText).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not restart the stop when Deepgram reports a transcript after key-up', async () => {
+    const deepgram = await import('../src/main/stt/deepgram')
+    let options: { onFinal?: (text: string) => void } = {}
+    vi.mocked(deepgram.DeepgramStream).mockImplementation(function (this: unknown, given: typeof options) {
+      options = given
+      return {
+        isOpen: true,
+        start: async () => undefined,
+        sendPcm: () => undefined,
+        abort: () => undefined,
+        finish: async () => ({ text: 'hello there', language: 'en', provider: 'deepgram', model: 'nova-3' })
+      }
+    } as never)
+    engine.deps.store.updateSettings({ stt: { provider: 'deepgram' } })
+
+    await record()
+    const stopping = engine.stop()
+    options.onFinal?.('hello') // arrives during the tail; must not flip the state back to listening
+    expect(engine.getState().state).toBe('transcribing')
+    engine.onCaptureDone({ durationMs: 1000, sampleRate: 16000, frames: 16000 })
+    await stopping
+
+    expect(paste.insertText).toHaveBeenCalledTimes(1)
+  })
+
   it('opens only one session when two starts race', async () => {
     const [first, second] = await Promise.all([engine.start(true), engine.start(true)])
     expect([first.ok, second.ok].sort()).toEqual([false, true])

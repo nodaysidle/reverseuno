@@ -43,6 +43,8 @@ interface Session {
   target: ActiveWindow
   insert: boolean
   source: 'key' | 'ui'
+  /** Key is up: the tail and the final flush still deliver audio, but nothing may restart the session. */
+  stopping: boolean
   releasedAt: number
   snapshot: Promise<ClipboardSnapshot> | null
   language: string
@@ -194,6 +196,7 @@ export class DictationEngine {
         target: active,
         insert,
         source,
+        stopping: false,
         releasedAt: 0,
         snapshot: null,
         language: settings.stt.language,
@@ -285,11 +288,11 @@ export class DictationEngine {
     return new DeepgramStream({
       ...this.deepgramOptions(settings, session.sampleRate),
       onInterim: (text) => {
-        if (this.session !== session) return
+        if (this.session !== session || session.stopping) return
         this.setState({ state: 'listening', message: 'Listening', interim: text })
       },
       onFinal: (text) => {
-        if (this.session !== session) return
+        if (this.session !== session || session.stopping) return
         this.setState({ state: 'listening', message: 'Listening', interim: text })
       },
       onError: (error) => {
@@ -302,7 +305,8 @@ export class DictationEngine {
 
   onChunk(pcm: Buffer, rms: number): void {
     const session = this.session
-    if (!session || this.state !== 'listening') return
+    // Audio keeps arriving after key-up (tail and flushed last frame) and belongs to the clip.
+    if (!session || (this.state !== 'listening' && !session.stopping)) return
     const settings = this.deps.store.settings
 
     if (!session.hasSpeech) {
@@ -342,7 +346,7 @@ export class DictationEngine {
     session.sampleRate = done.sampleRate || session.sampleRate
     session.captureResolve?.(done)
     session.captureResolve = null
-    if (this.state === 'listening') {
+    if (this.state === 'listening' && !session.stopping) {
       // Capture ended on its own (the microphone went away). Finish with what
       // was recorded instead of leaving the session listening to nothing.
       log.warn('[dictation] capture ended while listening; finishing early')
@@ -383,11 +387,12 @@ export class DictationEngine {
       return { ok: true, reason: 'queued', state: this.state }
     }
     const session = this.session
-    if (!session || this.state !== 'listening') {
+    if (!session || this.state !== 'listening' || session.stopping) {
       log.warn('[dictation] stop ignored', { state: this.state, hasSession: Boolean(session) })
       return { ok: false, reason: 'not-listening', state: this.state }
     }
     if (session.maxTimer) clearTimeout(session.maxTimer)
+    session.stopping = true
     session.releasedAt = Date.now()
     // Independent of the transcript, so let it run while we transcribe.
     if (session.insert && this.deps.store.settings.insert.mode === 'paste') {
