@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertCircle, Check, Command, Info, X } from 'lucide-react'
 import type { Bootstrap, DictationEntry, StateEvent, ThemePalette } from '@shared/types'
 import { Sidebar } from './Sidebar'
@@ -30,7 +30,7 @@ function Toasts({ items, dismiss }: { items: ToastItem[]; dismiss: (id: number) 
   return (
     <div className="toasts" aria-live="polite">
       {items.map((item) => (
-        <div className={cx('toast', `toast-${item.tone}`)} key={item.id}>
+        <div className={cx('toast', `toast-${item.tone}`)} key={item.id} role={item.tone === 'error' ? 'alert' : 'status'}>
           <span className="toast-icon">
             {item.tone === 'success' ? (
               <Check size={14} />
@@ -50,24 +50,38 @@ function Toasts({ items, dismiss }: { items: ToastItem[]; dismiss: (id: number) 
   )
 }
 
-function HelpModal({ onClose }: { onClose: () => void }) {
+function HelpModal({ onClose, cli }: { onClose: () => void; cli: string }) {
+  const closeRef = useRef<HTMLButtonElement>(null)
+
   useEffect(() => {
+    // Move focus into the dialog and give it back to whatever opened it.
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    closeRef.current?.focus()
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      opener?.focus()
+    }
   }, [onClose])
 
   return (
     <div className="drawer-backdrop" onMouseDown={onClose}>
-      <div className="help-modal card" onMouseDown={(event) => event.stopPropagation()}>
+      <div
+        className="help-modal card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="help-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <header className="help-head">
           <div>
             <div className="eyebrow">Two-minute version</div>
-            <h2 className="drawer-title">How reverseuno works</h2>
+            <h2 className="drawer-title" id="help-title">How reverseuno works</h2>
           </div>
-          <button type="button" className="btn-icon" onClick={onClose} aria-label="Close">
+          <button type="button" className="btn-icon" ref={closeRef} onClick={onClose} aria-label="Close">
             <X size={17} />
           </button>
         </header>
@@ -87,9 +101,10 @@ function HelpModal({ onClose }: { onClose: () => void }) {
           <section>
             <h3>What leaves the machine</h3>
             <p>
-              Audio goes to your speech provider (Deepgram streams it; OpenRouter receives the
-              clip on release). The transcript goes to OpenRouter for formatting. If app context is on, only the window class and title are
-              sent — never screen text, never screenshots.
+              Audio goes to your speech provider (Deepgram streams it while you talk; OpenRouter
+              receives the clip on release). The transcript goes to OpenRouter for formatting,
+              unless cleanup is off or the utterance is short and clean. If app context is on, only
+              the window class and title are sent — never screen text, never screenshots.
             </p>
           </section>
 
@@ -99,9 +114,10 @@ function HelpModal({ onClose }: { onClose: () => void }) {
               Right Super is <span className="mono">Super_R</span>.{' '}
               <span className="mono">scripts/install-hyprland.py</span> writes:
             </p>
-            <pre className="help-code">{`o.bind("Super_R", "reverseuno hold", "~/.local/bin/reverseuno start")
-o.bind("Super_R", "reverseuno release", "~/.local/bin/reverseuno stop", { release = true })
-o.bind("SUPER + Delete", "reverseuno cancel", "~/.local/bin/reverseuno cancel")`}</pre>
+            <pre className="help-code">{`o.bind("Super_R", "reverseuno hold", "${cli} start")
+o.bind("Super_R", "reverseuno release", "${cli} stop", { release = true })
+o.bind("SUPER + Super_R", "reverseuno release (super held)", "${cli} stop", { release = true })
+o.bind("SUPER + Delete", "reverseuno cancel", "${cli} cancel")`}</pre>
             <p className="muted small">
               It also adds overlay window rules (floating, pinned, never focused) and comments out
               an old WhisperBar bind on the same key so the two do not double-fire. Running it again
@@ -147,14 +163,23 @@ export function App() {
   const [helpOpen, setHelpOpen] = useState(false)
   const [omarchy, setOmarchy] = useState<ThemePalette | null>(null)
 
+  const [bootError, setBootError] = useState<string | null>(null)
+
   const refresh = useCallback(async () => {
     const next = await window.api.bootstrap()
     setData(next)
     setOmarchy(next.theme)
   }, [])
 
+  const boot = useCallback(() => {
+    setBootError(null)
+    refresh()
+      .then(() => window.api.state().then(setState))
+      .catch((error: unknown) => setBootError(error instanceof Error ? error.message : String(error)))
+  }, [refresh])
+
   useEffect(() => {
-    void refresh().then(() => window.api.state().then(setState))
+    boot()
     const offRefresh = window.api.onRefresh(() => void refresh())
     const offState = window.api.onState((next) => setState(next))
     const offTheme = window.api.onTheme(setOmarchy)
@@ -167,21 +192,28 @@ export function App() {
       offTheme()
       offPage()
     }
-  }, [refresh])
+  }, [boot, refresh])
 
   const followOmarchy = data?.settings.appearance.theme === 'omarchy'
   useEffect(() => applyTheme(followOmarchy ? omarchy : null), [followOmarchy, omarchy])
 
+  // Stable identity: the modal's focus handling re-runs whenever this changes.
+  const closeHelp = useCallback(() => setHelpOpen(false), [])
+
   const navigate = (next: Page) => {
     setPage(next)
     window.location.hash = next
-    document.querySelector('.main-scroll')?.scrollTo({ top: 0, behavior: 'smooth' })
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    document.querySelector('.main-scroll')?.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' })
   }
 
   const toast = useCallback((message: string, tone: ToastTone = 'default') => {
     const id = Date.now() + Math.random()
     setToasts((current) => [...current.slice(-2), { id, message, tone }])
-    setTimeout(() => setToasts((current) => current.filter((item) => item.id !== id)), 4200)
+    // Errors stay until dismissed; they are the ones people need time to read.
+    if (tone !== 'error') {
+      setTimeout(() => setToasts((current) => current.filter((item) => item.id !== id)), 4200)
+    }
   }, [])
 
   if (!data) {
@@ -195,7 +227,16 @@ export function App() {
           <span />
         </div>
         <div className="boot-name">reverseuno</div>
-        <div className="boot-hint">Waking up the waveform…</div>
+        {bootError ? (
+          <>
+            <div className="boot-hint" role="alert">Could not load your data: {bootError}</div>
+            <button type="button" className="btn btn-primary btn-sm" onClick={boot}>
+              Try again
+            </button>
+          </>
+        ) : (
+          <div className="boot-hint">Waking up the waveform…</div>
+        )}
       </div>
     )
   }
@@ -244,7 +285,7 @@ export function App() {
         refresh={refresh}
         toast={toast}
       />
-      {helpOpen ? <HelpModal onClose={() => setHelpOpen(false)} /> : null}
+      {helpOpen ? <HelpModal cli={data.paths.cli} onClose={closeHelp} /> : null}
       <Toasts
         items={toasts}
         dismiss={(id) => setToasts((current) => current.filter((item) => item.id !== id))}

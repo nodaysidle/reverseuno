@@ -11,7 +11,7 @@ import {
   Tray
 } from 'electron'
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { CONTROL_PORT } from '@shared/defaults'
@@ -71,7 +71,7 @@ if (process.env.REVERSEUNO_FAKE_AUDIO) {
 }
 if (process.env.REVERSEUNO_OZONE === 'x11') app.commandLine.appendSwitch('enable-transparent-visuals')
 
-const logPath = initLogger(join(userData, 'logs'))
+initLogger(join(userData, 'logs'))
 const storePath = join(userData, 'store.json')
 const store = new Store(storePath)
 const secrets = new Secrets(join(userData, 'secrets.json'), join(homedir(), '.config/whisper-bar/config.env'))
@@ -119,7 +119,25 @@ function loadPage(win: BrowserWindow, page: string): void {
   else void win.loadFile(join(__dirname, `../renderer/${page}.html`))
 }
 
+// What the tray menu offers depends on whether a dictation is recording, being
+// processed, or settled. Every state change reaches the hub channel, so track it there.
+type TrayBucket = 'idle' | 'listening' | 'processing'
+let trayBucket: TrayBucket = 'idle'
+
+function bucketFor(state: StateEvent['state']): TrayBucket {
+  if (state === 'listening') return 'listening'
+  if (state === 'transcribing' || state === 'formatting' || state === 'inserting') return 'processing'
+  return 'idle'
+}
+
 function sendHub(channel: string, payload?: unknown): void {
+  if (channel === 'state') {
+    const next = bucketFor((payload as StateEvent).state)
+    if (next !== trayBucket) {
+      trayBucket = next
+      updateTrayMenu()
+    }
+  }
   if (hub && !hub.isDestroyed()) hub.webContents.send(`hub:${channel}`, payload)
 }
 
@@ -274,6 +292,7 @@ function showHub(page = 'home'): void {
 }
 
 function quitApp(): void {
+  void engine?.cancel()
   isQuitting = true
   app.quit()
 }
@@ -316,21 +335,33 @@ function hubBackground(): string {
   return palette?.background ?? '#F4EFE4'
 }
 
+// The installer writes a marked block into Hyprland's bindings; its absence is the
+// most common reason holding the key does nothing on a fresh install.
+function hotkeyBound(): boolean {
+  try {
+    return readFileSync(join(homedir(), '.config/hypr/bindings.lua'), 'utf8').includes('reverseuno hold')
+  } catch {
+    return false
+  }
+}
+
 function bootstrap(): Bootstrap {
   const history = store.history
+  const { dictionary, snippets, suggestions } = store.snapshot()
   return {
     settings: store.settings,
     history,
-    dictionary: store.snapshot().dictionary,
-    snippets: store.snapshot().snippets,
-    suggestions: store.snapshot().suggestions,
+    dictionary,
+    snippets,
+    suggestions,
     stats: statsFromHistory(history),
     secrets: secrets.allStatuses(),
     version: app.getVersion(),
     platform: `${process.platform} ${process.arch}`,
     control: { port: control?.port ?? CONTROL_PORT, running: Boolean(control?.port) },
     paths: { config: userData, history: storePath, log: getLogPath(), cli: join(homedir(), '.local/bin/reverseuno') },
-    theme: readOmarchyTheme()
+    theme: readOmarchyTheme(),
+    setup: { hotkeyBound: hotkeyBound() }
   }
 }
 
@@ -447,11 +478,14 @@ function registerIpc(): void {
   })
   ipcMain.handle('history:copy', async (_, id: string) => {
     const entry = store.history.find((item) => item.id === id)
-    if (entry) await copyToClipboard(entry.text)
+    if (!entry) return { ok: false, error: 'That dictation no longer exists.' }
+    const ok = await copyToClipboard(entry.text)
+    return ok ? { ok } : { ok, error: 'Could not write to the clipboard.' }
   })
   ipcMain.handle('history:insert', async (_, id: string) => {
     const entry = store.history.find((item) => item.id === id)
-    if (entry) await engine.paste(entry.text)
+    if (!entry) return { ok: false, error: 'That dictation no longer exists.' }
+    return engine.paste(entry.text)
   })
   ipcMain.handle('history:flag', (_, id: string, flagged: boolean) => {
     store.updateHistory(id, { flagged })
@@ -504,7 +538,6 @@ function registerIpc(): void {
 
   ipcMain.handle('dictation:toggle', (_, insert?: boolean) => engine.toggle(insert !== false))
   ipcMain.handle('dictation:cancel', () => engine.cancel())
-  ipcMain.handle('dictation:paste', (_, text: string) => engine.paste(text))
 
 
   ipcMain.handle('app:open-external', async (_, url: string) => {
@@ -561,6 +594,8 @@ function registerIpc(): void {
 function updateTrayMenu(): void {
   if (!tray || tray.isDestroyed()) return
   const isVisible = Boolean(hub && !hub.isDestroyed() && hub.isVisible())
+  const busy = trayBucket !== 'idle'
+  const lastEntry = store?.history[0]
   const contextMenu = Menu.buildFromTemplate([
     {
       label: isVisible ? 'Hide reverseuno' : 'Open reverseuno',
@@ -569,9 +604,22 @@ function updateTrayMenu(): void {
         else showHub('home')
       }
     },
+    { type: 'separator' },
+    { label: { idle: 'Idle', listening: 'Listening…', processing: 'Working…' }[trayBucket], enabled: false },
     // Mouse-started sessions have no key release, so this item starts and stops.
-    { label: 'Start / stop dictation', click: () => void engine?.toggle(true) },
-    { label: 'Cancel dictation', click: () => void engine?.cancel() },
+    {
+      label: trayBucket === 'listening' ? 'Stop and paste' : 'Start dictation',
+      enabled: trayBucket !== 'processing',
+      click: () => void engine?.toggle(true)
+    },
+    { label: 'Cancel dictation', enabled: busy, click: () => void engine?.cancel() },
+    {
+      label: 'Copy last dictation',
+      enabled: Boolean(lastEntry),
+      click: () => {
+        if (lastEntry) void copyToClipboard(lastEntry.text)
+      }
+    },
     { type: 'separator' },
     { label: 'Settings', click: () => showHub('settings') },
     { label: 'Quit', click: () => quitApp() }
@@ -624,15 +672,24 @@ function trayStatus(): Promise<TrayStatus> {
       'RegisteredStatusNotifierItems'
     ])
     let out = ''
+    // A hung busctl must not wedge every later ensureTray() call behind this promise.
+    const timer = setTimeout(() => {
+      proc.kill('SIGKILL')
+      resolve('registered')
+    }, 2000)
     proc.stdout.on('data', (chunk) => {
       out += chunk.toString()
     })
     proc.on('close', (code) => {
+      clearTimeout(timer)
       if (code !== 0) resolve('no-watcher')
       else resolve(out.includes(`StatusNotifierItem-${process.pid}-`) ? 'registered' : 'missing')
     })
     // No busctl: cannot tell, so leave the tray alone.
-    proc.on('error', () => resolve('registered'))
+    proc.on('error', () => {
+      clearTimeout(timer)
+      resolve('registered')
+    })
   })
 }
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertCircle, Check, Mic } from 'lucide-react'
+import { AlertCircle, Check, Minus, Mic } from 'lucide-react'
 import type { StateEvent } from '@shared/types'
 import { formatClock, friendlyApp, truncate } from './lib'
 
@@ -71,6 +71,8 @@ function statusLabel(event: StateEvent): string {
       return 'Pasting'
     case 'done':
       return event.message || (event.text ? 'Pasted' : 'Saved')
+    case 'skipped':
+      return event.message || 'Nothing to paste'
     case 'error':
       return event.message || 'Something went wrong'
     case 'cancelled':
@@ -78,6 +80,14 @@ function statusLabel(event: StateEvent): string {
     default:
       return 'Hold Right Super to talk'
   }
+}
+
+function previewText(event: StateEvent, preview: string, active: boolean): string {
+  if (preview) return truncate(preview, 96)
+  if (!active) return ' '
+  if (event.insert === false) return 'Speak naturally. Stop from reverseuno to save it.'
+  if (event.source === 'ui') return 'Speak naturally. Choose “Stop and paste” in the tray menu.'
+  return 'Speak naturally. Release to paste.'
 }
 
 export function Overlay() {
@@ -106,10 +116,13 @@ export function Overlay() {
     }
   }, [])
 
+  // The ripple only shows while listening; idle and processing pills need no ticks.
+  const active = state.state === 'listening'
   useEffect(() => {
+    if (!active || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
     const timer = setInterval(() => setPhase((value) => value + 1), 70)
     return () => clearInterval(timer)
-  }, [])
+  }, [active])
 
   useEffect(() => {
     if (state.state === 'idle') return
@@ -126,12 +139,13 @@ export function Overlay() {
     return () => clearInterval(timer)
   }, [state.state])
 
-  const active = state.state === 'listening'
   const processing = ['transcribing', 'formatting', 'inserting'].includes(state.state)
   const elapsed = state.elapsedMs ?? (state.startedAt ? now - state.startedAt : 0)
   const preview = state.interim || state.text || ''
   const isIdle = state.state === 'idle'
   const isError = state.state === 'error'
+  const isSkipped = state.state === 'skipped'
+  const fromUi = state.source === 'ui'
 
   if (isIdle) {
     return (
@@ -158,11 +172,15 @@ export function Overlay() {
 
   return (
     <div className="overlay-root">
-      <div className={`pill ${processing ? 'is-processing' : ''} ${isError ? 'is-error' : ''} ${state.state === 'done' ? 'is-done' : ''}`}>
+      <div className={`pill ${processing ? 'is-processing' : ''} ${isError ? 'is-error' : ''} ${isSkipped ? 'is-skipped' : ''} ${state.state === 'done' ? 'is-done' : ''}`}>
         <div className="pill-visual">
           {isError ? (
             <span className="pill-state-icon is-error">
               <AlertCircle size={19} />
+            </span>
+          ) : isSkipped ? (
+            <span className="pill-state-icon is-skipped">
+              <Minus size={18} />
             </span>
           ) : state.state === 'done' ? (
             <span className="pill-state-icon is-done">
@@ -176,7 +194,7 @@ export function Overlay() {
         </div>
 
         <div className="pill-copy">
-          <div className="pill-status-row">
+          <div className="pill-status-row" role="status" aria-live="polite">
             <span className="pill-status">{statusLabel(state)}</span>
             {state.appClass ? (
               <span className="pill-app">{friendlyApp(state.appClass)}</span>
@@ -185,15 +203,7 @@ export function Overlay() {
               <span className="pill-lang">{state.language.toUpperCase()}</span>
             ) : null}
           </div>
-          <div className="pill-preview">
-            {preview
-              ? truncate(preview, 96)
-              : active
-                ? state.insert === false
-                  ? 'Speak naturally. Stop from reverseuno to save it.'
-                  : 'Speak naturally. Release to paste.'
-                : ' '}
-          </div>
+          <div className="pill-preview">{previewText(state, preview, active)}</div>
         </div>
 
         {elapsed > 0 ? <span className="pill-timer">{formatClock(elapsed)}</span> : null}
@@ -201,8 +211,12 @@ export function Overlay() {
         {active && state.insert !== false ? (
           // The overlay is click-through while recording so it can never take focus
           // from the target window; the keyboard is the whole interface.
-          <div className="pill-keys" aria-label="Release Right Super to paste, Super+Delete to cancel">
-            <span className="pill-key">Release</span>
+          <div
+            className="pill-keys"
+            role="group"
+            aria-label={`${fromUi ? 'Tray menu, Stop and paste' : 'Release Right Super to paste'}, Super+Delete to cancel`}
+          >
+            <span className="pill-key">{fromUi ? 'Tray menu' : 'Release'}</span>
             <span className="pill-key-label">paste</span>
             <span className="pill-key">Super Del</span>
             <span className="pill-key-label">cancel</span>

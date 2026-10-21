@@ -9,9 +9,59 @@ let recording = false
 let startedAt = 0
 let sampleRate = 16000
 let frames = 0
+let flushDone: (() => void) | null = null
 
-async function cleanup(): Promise<void> {
+// Ask the worklet for the partial 40 ms frame it is still holding, so the last
+// syllable is not dropped. Bounded: a stuck worklet must not delay the paste.
+function flushWorklet(): Promise<void> {
+  const node = worklet
+  if (!node) return Promise.resolve()
+  return new Promise((resolve) => {
+    const timer = setTimeout(done, 60)
+    function done(): void {
+      clearTimeout(timer)
+      flushDone = null
+      resolve()
+    }
+    flushDone = done
+    node.port.postMessage({ flush: true })
+  })
+}
+
+// The AudioContext and worklet module are kept between presses: loading them costs
+// tens of ms and holds no microphone. Only the stream (the mic) is released.
+async function warmContext(rate: number): Promise<AudioContext> {
+  if (context && context.sampleRate !== rate) await closeContext()
+  if (context && context.state === 'closed') context = null
+  if (!context) {
+    const created = new AudioContext({ sampleRate: rate, latencyHint: 'interactive' })
+    const workletUrl = new URL('pcm-worklet.js', window.location.href).href
+    try {
+      await created.audioWorklet.addModule(workletUrl)
+    } catch (error) {
+      // Never keep a context that has no worklet registered; the next press retries.
+      void created.close().catch(() => undefined)
+      throw error
+    }
+    context = created
+  }
+  return context
+}
+
+async function closeContext(): Promise<void> {
+  if (!context) return
+  try {
+    await context.close()
+  } catch {
+    // ignore
+  }
+  context = null
+}
+
+function release(): void {
   recording = false
+  // A suspended context holds no output stream while idle; start() resumes it.
+  void context?.suspend().catch(() => undefined)
   try {
     source?.disconnect()
   } catch {
@@ -28,14 +78,10 @@ async function cleanup(): Promise<void> {
     for (const track of stream.getTracks()) track.stop()
     stream = null
   }
-  if (context) {
-    try {
-      await context.close()
-    } catch {
-      // ignore
-    }
-    context = null
-  }
+}
+
+async function cleanup(): Promise<void> {
+  release()
 }
 
 async function start(options: CaptureStartOptions): Promise<void> {
@@ -52,26 +98,32 @@ async function start(options: CaptureStartOptions): Promise<void> {
       },
       video: false
     }
-    stream = await navigator.mediaDevices.getUserMedia(constraints)
-    context = new AudioContext({ sampleRate: options.sampleRate, latencyHint: 'interactive' })
-    sampleRate = context.sampleRate
-    const workletUrl = new URL('pcm-worklet.js', window.location.href).href
-    await context.audioWorklet.addModule(workletUrl)
-    source = context.createMediaStreamSource(stream)
-    worklet = new AudioWorkletNode(context, 'pcm-worklet', {
+    // Permission and device open dominate; load the audio graph while they run.
+    const [mic, ctx] = await Promise.all([
+      navigator.mediaDevices.getUserMedia(constraints),
+      warmContext(options.sampleRate)
+    ])
+    stream = mic
+    sampleRate = ctx.sampleRate
+    source = ctx.createMediaStreamSource(stream)
+    worklet = new AudioWorkletNode(ctx, 'pcm-worklet', {
       numberOfInputs: 1,
       numberOfOutputs: 1,
       outputChannelCount: [1]
     })
-    worklet.port.onmessage = (event: MessageEvent<{ pcm: ArrayBuffer; rms: number }>) => {
-      if (!recording) return
-      const { pcm, rms } = event.data
+    worklet.port.onmessage = (event: MessageEvent<{ pcm?: ArrayBuffer; rms?: number; flushed?: boolean }>) => {
+      if (event.data.flushed) {
+        flushDone?.()
+        return
+      }
+      if (!recording || !event.data.pcm) return
+      const { pcm, rms = 0 } = event.data
       frames += pcm.byteLength / 2
       window.captureApi.chunk(pcm, rms)
     }
     source.connect(worklet)
-    worklet.connect(context.destination)
-    await context.resume()
+    worklet.connect(ctx.destination)
+    await ctx.resume()
     const track = stream.getAudioTracks()[0]
     // Only the microphone we are recording from going away ends the session.
     // Unrelated device changes (a headset connecting) must not cut the clip.
@@ -106,16 +158,18 @@ function go(): void {
 }
 
 async function stop(): Promise<void> {
-  if (!context) {
+  if (!stream) {
     window.captureApi.done(0, sampleRate, 0)
     return
   }
   const durationMs = recording ? performance.now() - startedAt : 0
+  if (recording) await flushWorklet()
   recording = false
   const frameCount = frames
   const rate = sampleRate
-  await cleanup()
+  // Answer first; releasing the mic is not on the paste path.
   window.captureApi.done(Math.max(0, Math.round(durationMs)), rate, frameCount)
+  release()
 }
 
 async function cancel(): Promise<void> {

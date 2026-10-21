@@ -1,4 +1,16 @@
+import { wordCount } from '@shared/text'
 import type { CleanupLevel, Settings, WritingStyle } from '@shared/types'
+
+// Spoken fillers the light cleanup exists to remove; a short transcript without
+// them gains nothing from a network round-trip.
+const FILLER = /\b(u+m+|u+h+|e+r+m*|h+m+|you know|i mean|like)\b/i
+const SHORT_UTTERANCE_WORDS = 3
+
+export function needsFormatting(raw: string, settings: Settings): boolean {
+  if (!settings.format.enabled || settings.format.cleanup === 'none') return false
+  if (settings.format.cleanup !== 'light' || settings.format.customInstructions.trim()) return true
+  return wordCount(raw) > SHORT_UTTERANCE_WORDS || FILLER.test(raw)
+}
 
 const CLEANUP_INSTRUCTIONS: Record<CleanupLevel, string> = {
   none: 'Return the transcript verbatim.',

@@ -78,7 +78,7 @@ const api: ReverseunoApi = {
   windowMaximize: () => ipcRenderer.send('window:maximize'),
   windowClose: () => ipcRenderer.send('window:close'),
   openHub: (page?: string) => ipcRenderer.invoke('window:open-hub', page),
-  quit: () => ipcRenderer.send('app:quit')
+  quit: () => ipcRenderer.invoke('app:quit')
 }
 
 contextBridge.exposeInMainWorld('api', api)

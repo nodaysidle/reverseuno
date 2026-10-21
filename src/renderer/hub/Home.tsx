@@ -3,6 +3,7 @@ import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import {
   ArrowUpRight,
   Check,
+  Circle,
   Clock3,
   Copy,
   Flame,
@@ -19,7 +20,7 @@ import {
   X
 } from 'lucide-react'
 import type { Bootstrap, DictationEntry, StateEvent } from '@shared/types'
-import { currentStreak, lastNDays, timeSavedMinutes, wordsPerMinute } from '@shared/stats'
+import { currentStreak, dayKey, lastNDays, timeSavedMinutes, wordsPerMinute } from '@shared/stats'
 import {
   appLabel,
   cleanupLabel,
@@ -80,6 +81,89 @@ function StatCard({
   )
 }
 
+interface WeeklySeries {
+  words: number[]
+  active: number[]
+  savedMinutes: number[]
+  pace: number[]
+}
+
+// One value per day, so each stat card draws its own trend instead of the same bars.
+function weeklySeries(history: DictationEntry[], keys: string[]): WeeklySeries {
+  const perDay = new Map(keys.map((key) => [key, { words: 0, speakingMs: 0 }]))
+  for (const entry of history) {
+    if (entry.error) continue
+    const day = perDay.get(dayKey(new Date(entry.createdAt)))
+    if (!day) continue
+    day.words += entry.wordCount || 0
+    day.speakingMs += entry.durationMs || 0
+  }
+  const days = keys.map((key) => perDay.get(key)!)
+  return {
+    words: days.map((day) => day.words),
+    active: days.map((day) => (day.words > 0 ? 1 : 0)),
+    savedMinutes: days.map((day) => Math.max(0, day.words / 40 - day.speakingMs / 60_000)),
+    pace: days.map((day) => (day.speakingMs ? (day.words / day.speakingMs) * 60_000 : 0))
+  }
+}
+
+function SetupChecklist({ data, navigate }: { data: Bootstrap; navigate: (page: Page) => void }) {
+  const hasKey = (name: string) => data.secrets.some((secret) => secret.name === name && secret.present)
+  const sttName = data.settings.stt.provider === 'openrouter' ? 'openrouter' : 'deepgram'
+  const needsFormatKey = data.settings.format.enabled && data.settings.format.cleanup !== 'none'
+  const items = [
+    {
+      done: hasKey(sttName),
+      title: `Add your ${sttName === 'openrouter' ? 'OpenRouter' : 'Deepgram'} key`,
+      detail: 'Speech-to-text needs it. Without it, holding the key shows an error.',
+      action: 'Open Providers'
+    },
+    ...(needsFormatKey && sttName !== 'openrouter'
+      ? [
+          {
+            done: hasKey('openrouter'),
+            title: 'Add your OpenRouter key',
+            detail: 'Used to polish the transcript. Without it, you get the raw transcript.',
+            action: 'Open Providers'
+          }
+        ]
+      : []),
+    {
+      done: data.setup.hotkeyBound,
+      title: 'Install the Right Super bind',
+      detail: 'Run scripts/install-hyprland.py from the repo, then hold Right Super.',
+      action: ''
+    }
+  ]
+  if (items.every((item) => item.done)) return null
+  return (
+    <section className="setup-card card rise" aria-labelledby="setup-title">
+      <div className="eyebrow">Get set up</div>
+      <h2 id="setup-title" className="section-title">
+        {items.filter((item) => item.done).length} of {items.length} done
+      </h2>
+      <ul className="setup-list">
+        {items.map((item) => (
+          <li key={item.title} className={cx('setup-item', item.done && 'is-done')}>
+            <span className="setup-mark" aria-hidden="true">
+              {item.done ? <Check size={14} /> : <Circle size={14} />}
+            </span>
+            <div className="setup-copy">
+              <strong>{item.title}</strong>
+              {item.done ? null : <p className="muted small">{item.detail}</p>}
+            </div>
+            {!item.done && item.action ? (
+              <button type="button" className="btn btn-sm btn-primary" onClick={() => navigate('settings')}>
+                {item.action}
+              </button>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
 function HistoryRow({
   entry,
   onOpen,
@@ -95,14 +179,14 @@ function HistoryRow({
 
   const copy = async (event: ReactMouseEvent) => {
     event.stopPropagation()
-    await window.api.historyCopy(entry.id)
-    toast('Copied to clipboard', 'success')
+    const result = await window.api.historyCopy(entry.id)
+    toast(result.ok ? 'Copied to clipboard' : result.error || 'Could not copy', result.ok ? 'success' : 'error')
   }
 
   const insert = async (event: ReactMouseEvent) => {
     event.stopPropagation()
-    await window.api.historyInsert(entry.id)
-    toast('Inserted at your cursor', 'success')
+    const result = await window.api.historyInsert(entry.id)
+    toast(result.ok ? 'Inserted at your cursor' : result.error || 'Could not insert', result.ok ? 'success' : 'error')
   }
 
   const flag = async (event: ReactMouseEvent) => {
@@ -128,6 +212,8 @@ function HistoryRow({
       role="button"
       tabIndex={0}
       onKeyDown={(event) => {
+        // Enter on a nested action button bubbles up here; only the row itself opens.
+        if (event.target !== event.currentTarget) return
         if (event.key === 'Enter' || event.key === ' ') onOpen(entry)
       }}
     >
@@ -201,7 +287,10 @@ export function Home({
   const streak = currentStreak(stats.days)
   const wpm = wordsPerMinute(stats)
   const saved = timeSavedMinutes(stats)
-  const last7 = weekly.map((day) => day.words)
+  const series = useMemo(
+    () => weeklySeries(data.history, lastNDays(stats.days, 7).map((day) => day.key)),
+    [data.history, stats.days]
+  )
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -214,6 +303,7 @@ export function Home({
   const groups = groupHistory(filtered)
   const suggestions = data.suggestions.slice(0, 3)
   const active = state.state !== 'idle'
+  const processing = ['transcribing', 'formatting', 'inserting'].includes(state.state)
 
   const accept = async (id: string) => {
     await window.api.suggestionAccept(id)
@@ -242,7 +332,7 @@ export function Home({
             type="button"
             className={cx('btn btn-primary btn-lg', active && 'is-live')}
             onClick={() => void window.api.dictationToggle(false)}
-            disabled={active && state.state !== 'listening'}
+            disabled={processing}
             title="Records here and saves to history. Hold Right Super to paste into other apps."
           >
             <Mic size={17} />
@@ -253,6 +343,8 @@ export function Home({
           </button>
         </div>
       </header>
+
+      <SetupChecklist data={data} navigate={navigate} />
 
       <div className="search-row rise" style={{ animationDelay: '40ms' }}>
         <div className="search-box">
@@ -280,14 +372,14 @@ export function Home({
           value={formatNumber(stats.totalWords)}
           hint={`${formatNumber(stats.totalDictations)} dictations`}
           icon={<Type size={15} />}
-          values={last7}
+          values={series.words}
         />
         <StatCard
           label="Day streak"
           value={`${streak}`}
           hint={streak === 1 ? 'one day, keep going' : 'days in a row'}
           icon={<Flame size={15} />}
-          values={last7}
+          values={series.active}
           tone="accent"
         />
         <StatCard
@@ -295,14 +387,14 @@ export function Home({
           value={saved < 1 ? '<1m' : `${formatNumber(saved)}m`}
           hint="vs. typing at 40 wpm"
           icon={<Clock3 size={15} />}
-          values={last7}
+          values={series.savedMinutes}
         />
         <StatCard
           label="Speaking pace"
           value={wpm ? `${formatNumber(wpm)}` : '—'}
           hint={wpm ? 'words per minute' : 'dictate to measure'}
           icon={<Gauge size={15} />}
-          values={last7}
+          values={series.pace}
           tone="lavender"
         />
       </div>

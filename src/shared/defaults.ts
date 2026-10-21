@@ -80,7 +80,7 @@ export const DEFAULT_SETTINGS: Settings = {
     cleanup: 'light',
     style: 'casual',
     customInstructions: '',
-    timeoutMs: 4500,
+    timeoutMs: 2500,
     includeAppContext: true
   },
   insert: {

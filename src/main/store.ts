@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { log } from './logger'
 import { DEFAULT_SETTINGS } from '@shared/defaults'
 import { diffTokens, isLearnable, sanitizeTranscript, wordCount } from '@shared/text'
 import type {
@@ -13,7 +14,18 @@ import type {
   Suggestion
 } from '@shared/types'
 
-const STORE_VERSION = 1
+const STORE_VERSION = 2
+// v2 lowered the formatter timeout from 4500 to 2500 ms; installs still on the old
+// default would otherwise keep waiting up to 4.5 s before falling back to raw text.
+const OLD_FORMAT_TIMEOUT_MS = 4500
+
+function migrateSettings(settings: Settings, fromVersion: unknown): Settings {
+  if (typeof fromVersion === 'number' && fromVersion >= 2) return settings
+  if (settings.format.timeoutMs === OLD_FORMAT_TIMEOUT_MS) {
+    settings.format.timeoutMs = DEFAULT_SETTINGS.format.timeoutMs
+  }
+  return settings
+}
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -64,19 +76,20 @@ export class Store {
       const data: StoreData = {
         version: STORE_VERSION,
         createdAt: typeof parsed.createdAt === 'number' ? parsed.createdAt : base.createdAt,
-        settings: deepMerge(base.settings, parsed.settings),
+        settings: migrateSettings(deepMerge(base.settings, parsed.settings), parsed.version),
         history: Array.isArray(parsed.history) ? parsed.history.filter(this.validEntry) : [],
         dictionary: Array.isArray(parsed.dictionary) ? parsed.dictionary.filter(this.validDictionary) : [],
         snippets: Array.isArray(parsed.snippets) ? parsed.snippets.filter(this.validSnippet) : [],
         suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions.filter(this.validSuggestion) : []
       }
       return data
-    } catch {
+    } catch (error) {
       // A corrupt store must not brick the app. Keep the old file for inspection.
+      log.warn('[store] store unreadable; starting fresh', String(error))
       try {
         renameSync(this.filePath, `${this.filePath}.corrupt-${Date.now()}`)
-      } catch {
-        // ignore
+      } catch (renameError) {
+        log.warn('[store] could not keep the unreadable store for inspection', String(renameError))
       }
       const initial = freshData()
       this.write(initial)

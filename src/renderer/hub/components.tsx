@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useId, type ReactNode } from 'react'
 import { cx } from './lib'
 
 export function Toggle({
@@ -60,13 +60,18 @@ export function SettingRow({
   children: ReactNode
   stacked?: boolean
 }) {
+  const labelId = useId()
   return (
     <div className={cx('setting-row', stacked && 'is-stacked')}>
       <div className="setting-copy">
-        <div className="setting-label">{label}</div>
+        <div className="setting-label" id={labelId}>
+          {label}
+        </div>
         {hint ? <div className="setting-hint">{hint}</div> : null}
       </div>
-      <div className="setting-control">{children}</div>
+      <div className="setting-control" role="group" aria-labelledby={labelId}>
+        {children}
+      </div>
     </div>
   )
 }
@@ -87,6 +92,7 @@ export function Segmented<T extends string>({
           key={option.value}
           type="button"
           className={cx('segmented-item', value === option.value && 'is-active')}
+          aria-pressed={value === option.value}
           onClick={() => onChange(option.value)}
         >
           {option.label}

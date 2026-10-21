@@ -8,7 +8,7 @@ import {
   X
 } from 'lucide-react'
 import type { DictationEntry, Suggestion } from '@shared/types'
-import { appLabel, cleanupLabel, copyText, cx, formatDate, formatDuration, formatTime, truncate } from './lib'
+import { appLabel, cleanupLabel, copyText, formatDate, formatDuration, formatTime, truncate } from './lib'
 
 export function EntryDrawer({
   entry,
@@ -131,8 +131,8 @@ export function EntryDrawer({
                   type="button"
                   className="btn btn-soft btn-sm"
                   onClick={async () => {
-                    await window.api.historyInsert(entry.id)
-                    toast('Inserted at your cursor', 'success')
+                    const result = await window.api.historyInsert(entry.id)
+                    toast(result.ok ? 'Inserted at your cursor' : result.error || 'Could not insert', result.ok ? 'success' : 'error')
                   }}
                 >
                   <TextCursorIcon /> Insert

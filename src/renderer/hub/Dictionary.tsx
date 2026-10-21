@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { ArrowRight, BookOpen, Check, Code2, Pencil, Plus, Search, Star, Trash2, X } from 'lucide-react'
 import type { Bootstrap, DictionaryEntry } from '@shared/types'
 import { cx, formatNumber } from './lib'
@@ -36,21 +36,31 @@ export function DictionaryPage({
     const clean = word.trim()
     if (!clean || busy) return
     setBusy(true)
-    await window.api.dictionaryAdd(clean, correction.trim() || undefined)
-    setWord('')
-    setCorrection('')
-    await refresh()
-    toast(`“${clean}” added to your dictionary`, 'success')
-    setBusy(false)
+    try {
+      await window.api.dictionaryAdd(clean, correction.trim() || undefined)
+      setWord('')
+      setCorrection('')
+      await refresh()
+      toast(`“${clean}” added to your dictionary`, 'success')
+    } catch (error) {
+      toast(`Could not add “${clean}”: ${error instanceof Error ? error.message : String(error)}`, 'error')
+    } finally {
+      setBusy(false)
+    }
   }
 
   const addDeveloperWords = async () => {
     if (busy) return
     setBusy(true)
-    const added = await window.api.dictionaryAddPack()
-    await refresh()
-    toast(added ? `Added ${added} developer words` : 'Developer words are already in your dictionary', 'success')
-    setBusy(false)
+    try {
+      const added = await window.api.dictionaryAddPack()
+      await refresh()
+      toast(added ? `Added ${added} developer words` : 'Developer words are already in your dictionary', 'success')
+    } catch (error) {
+      toast(`Could not add the developer words: ${error instanceof Error ? error.message : String(error)}`, 'error')
+    } finally {
+      setBusy(false)
+    }
   }
 
   const startEdit = (entry: DictionaryEntry) => {
@@ -60,18 +70,34 @@ export function DictionaryPage({
   }
 
   const saveEdit = async (id: string) => {
-    await window.api.dictionaryUpdate(id, {
-      word: editWord.trim(),
-      correction: editCorrection.trim() || undefined
-    })
-    setEditing(null)
-    await refresh()
+    const word = editWord.trim()
+    if (!word) {
+      toast('A dictionary word cannot be empty', 'error')
+      return
+    }
+    try {
+      await window.api.dictionaryUpdate(id, { word, correction: editCorrection.trim() || undefined })
+      setEditing(null)
+      await refresh()
+    } catch (error) {
+      toast(`Could not save: ${error instanceof Error ? error.message : String(error)}`, 'error')
+    }
+  }
+
+  // Enter saves, Escape abandons the edit; both are what a text field implies.
+  const editKeys = (id: string) => (event: ReactKeyboardEvent) => {
+    if (event.key === 'Enter') void saveEdit(id)
+    else if (event.key === 'Escape') setEditing(null)
   }
 
   const remove = async (entry: DictionaryEntry) => {
-    await window.api.dictionaryDelete(entry.id)
-    await refresh()
-    toast(`“${entry.word}” removed`)
+    try {
+      await window.api.dictionaryDelete(entry.id)
+      await refresh()
+      toast(`“${entry.word}” removed`)
+    } catch (error) {
+      toast(`Could not remove “${entry.word}”: ${error instanceof Error ? error.message : String(error)}`, 'error')
+    }
   }
 
   const toggleStar = async (entry: DictionaryEntry) => {
@@ -194,6 +220,9 @@ export function DictionaryPage({
                     className="input"
                     value={editWord}
                     onChange={(event) => setEditWord(event.target.value)}
+                    onKeyDown={editKeys(entry.id)}
+                    aria-label="Word"
+                    autoFocus
                     maxLength={60}
                   />
                   <ArrowRight size={14} className="muted" />
@@ -201,6 +230,8 @@ export function DictionaryPage({
                     className="input"
                     value={editCorrection}
                     onChange={(event) => setEditCorrection(event.target.value)}
+                    onKeyDown={editKeys(entry.id)}
+                    aria-label="Correction"
                     placeholder="No correction"
                     maxLength={60}
                   />

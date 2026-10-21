@@ -72,7 +72,14 @@ function sessionEnv(): NodeJS.ProcessEnv {
 export function runCommand(
   command: string,
   args: string[],
-  options: { input?: Buffer | string; timeoutMs?: number; env?: NodeJS.ProcessEnv; maxBytes?: number } = {}
+  options: {
+    input?: Buffer | string
+    timeoutMs?: number
+    env?: NodeJS.ProcessEnv
+    maxBytes?: number
+    /** Settle on process exit instead of stdio close, for daemonizing tools like wl-copy. */
+    settleOnExit?: boolean
+  } = {}
 ): Promise<RunResult> {
   return new Promise((resolve) => {
     const env = options.env ?? sessionEnv()
@@ -104,7 +111,7 @@ export function runCommand(
       if (stderr.length > 4000) stderr = stderr.slice(-4000)
     })
     child.on('error', (error) => finish(-1, error.message))
-    child.on('close', (code) => finish(code ?? -1))
+    child.on(options.settleOnExit ? 'exit' : 'close', (code) => finish(code ?? -1))
 
     if (options.input !== undefined) child.stdin.end(options.input)
     else child.stdin.end()
@@ -122,7 +129,8 @@ export async function getActiveWindow(): Promise<ActiveWindow> {
       address: typeof data.address === 'string' ? data.address : '',
       initialClass: typeof data.initialClass === 'string' ? data.initialClass : undefined
     }
-  } catch {
+  } catch (error) {
+    log.debug('[paste] could not parse hyprctl activewindow output', String(error))
     return { class: '', title: '', address: '' }
   }
 }
@@ -234,7 +242,7 @@ export async function writeClipboardText(text: string, primary = false): Promise
     // wl-copy often keeps a serving process alive after it has taken the
     // selection, so "did it exit?" is not the same question as "did the
     // clipboard change?". Ask the clipboard directly before declaring failure.
-    const result = await runCommand('wl-copy', args, { input: text, timeoutMs: 900 })
+    const result = await runCommand('wl-copy', args, { input: text, timeoutMs: 900, settleOnExit: true })
     if (result.code === 0) {
       ok = true
       break
@@ -252,7 +260,8 @@ export async function writeClipboardText(text: string, primary = false): Promise
   if (primary && ok) {
     await runCommand('wl-copy', ['--primary', '--type', 'text/plain;charset=utf-8'], {
       input: text,
-      timeoutMs: 900
+      timeoutMs: 900,
+      settleOnExit: true
     })
   }
   return ok
@@ -323,10 +332,18 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+export interface InsertOptions {
+  /** When the push-to-talk key came up; the modifier settle is measured from here. */
+  releasedAt?: number
+  /** Clipboard snapshot already started while the transcript was in flight. */
+  snapshot?: Promise<ClipboardSnapshot>
+}
+
 export async function insertText(
   text: string,
   settings: Settings,
-  target?: ActiveWindow
+  target?: ActiveWindow,
+  options: InsertOptions = {}
 ): Promise<InsertResult> {
   if (!text) {
     return {
@@ -341,8 +358,10 @@ export async function insertText(
   }
 
   // Let the Right Super modifier come up before injecting a synthetic paste. Wispr's
-  // helper waits up to 2 s for held modifiers; we use a short configurable settle.
-  await sleep(Math.max(0, settings.insert.waitForModifiersMs))
+  // helper waits up to 2 s for held modifiers; we use a short configurable settle,
+  // counted from the key-up so transcription time is not waited out twice.
+  const sinceRelease = options.releasedAt ? Date.now() - options.releasedAt : 0
+  await sleep(Math.max(0, settings.insert.waitForModifiersMs - sinceRelease))
 
   const { active, error: focusError } = await ensureTarget(target)
   const rule = resolvePasteRule(active.class, active.title, settings)
@@ -376,7 +395,7 @@ export async function insertText(
     }
   }
 
-  const snapshot = await snapshotClipboard()
+  const snapshot = await (options.snapshot ?? snapshotClipboard())
   const wrote = await writeClipboardText(text, settings.insert.copyToPrimary)
   if (!wrote) {
     // Clipboard writes can fail when another client owns the selection. Direct
@@ -401,7 +420,6 @@ export async function insertText(
   const pasted = await runCommand('wtype', wtypeArgs(rule.keys, settings.insert.keyDelayMs), {
     timeoutMs: 3000
   })
-  await sleep(50)
 
   setTimeout(async () => {
     try {

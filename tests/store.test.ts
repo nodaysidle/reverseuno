@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -122,5 +122,25 @@ describe('Store', () => {
       ['FASTFETCH', 1],
       ['no days idle', 0]
     ])
+  })
+
+  describe('format timeout migration', () => {
+    const seed = (version: number, timeoutMs: number) =>
+      writeFileSync(file, JSON.stringify({ version, settings: { format: { timeoutMs } } }))
+
+    it('moves a v1 store off the old 4500 ms default', () => {
+      seed(1, 4500)
+      expect(new Store(file).settings.format.timeoutMs).toBe(2500)
+    })
+
+    it('keeps a timeout the user chose', () => {
+      seed(1, 6000)
+      expect(new Store(file).settings.format.timeoutMs).toBe(6000)
+    })
+
+    it('does not touch a store that is already v2', () => {
+      seed(2, 4500)
+      expect(new Store(file).settings.format.timeoutMs).toBe(4500)
+    })
   })
 })

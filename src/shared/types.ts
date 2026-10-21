@@ -8,6 +8,7 @@ export type DictationState =
   | 'formatting'
   | 'inserting'
   | 'done'
+  | 'skipped'
   | 'error'
   | 'cancelled'
 
@@ -204,6 +205,8 @@ export interface StateEvent {
   entryId?: string
   language?: string
   words?: number
+  /** How the session was started: the push-to-talk key (has a release) or a click/tray (needs an explicit stop). */
+  source?: 'key' | 'ui'
   /** False when the session saves to history instead of pasting (started from the hub). */
   insert?: boolean
   /** Overlay should play start/stop cues (settings.overlay.sounds). */
@@ -224,6 +227,13 @@ export interface Bootstrap {
   paths: { config: string; history: string; log: string; cli: string }
   /** Null when Omarchy isn't installed or its colors can't be read. */
   theme: ThemePalette | null
+  /** First-run checks the hub can't make from the renderer. */
+  setup: { hotkeyBound: boolean }
+}
+
+export interface ActionResult {
+  ok: boolean
+  error?: string
 }
 
 export interface ProviderTestResult {
@@ -249,8 +259,8 @@ export interface ReverseunoApi {
   historyUpdate(id: string, text: string): Promise<{ entry: DictationEntry; suggestions: Suggestion[] }>
   historyDelete(id: string): Promise<void>
   historyClear(): Promise<void>
-  historyCopy(id: string): Promise<void>
-  historyInsert(id: string): Promise<void>
+  historyCopy(id: string): Promise<ActionResult>
+  historyInsert(id: string): Promise<ActionResult>
   historyFlag(id: string, flagged: boolean): Promise<void>
   dictionaryAdd(word: string, correction?: string): Promise<DictionaryEntry>
   /** Adds the built-in developer word pack; resolves to how many words were new. */
@@ -272,7 +282,7 @@ export interface ReverseunoApi {
   windowMaximize(): void
   windowClose(): void
   openHub(page?: string): Promise<void>
-  quit(): void
+  quit(): Promise<void>
 }
 
 export type DeepPartial<T> = {

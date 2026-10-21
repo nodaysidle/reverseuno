@@ -36,7 +36,7 @@ export class ControlServer {
   private readonly file: string
 
   constructor(
-    private readonly configDir: string,
+    configDir: string,
     private readonly handlers: ControlHandlers
   ) {
     this.file = join(configDir, 'control.json')

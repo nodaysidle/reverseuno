@@ -6,8 +6,8 @@ import { pcm16ToWav } from '@shared/wav'
 import type { DictationEntry, DictationState, Settings, StateEvent } from '@shared/types'
 import { DeepgramStream, transcribeBuffer, type SttResult } from './stt/deepgram'
 import { transcribeOpenRouter } from './stt/openrouter'
-import { formatTranscript } from './format'
-import { getActiveWindow, insertText, type ActiveWindow } from './paste'
+import { formatTranscript, needsFormatting } from './format'
+import { getActiveWindow, insertText, snapshotClipboard, type ActiveWindow, type ClipboardSnapshot } from './paste'
 import { log } from './logger'
 import type { Secrets } from './secrets'
 import type { Store } from './store'
@@ -42,6 +42,9 @@ interface Session {
   appTitle: string
   target: ActiveWindow
   insert: boolean
+  source: 'key' | 'ui'
+  releasedAt: number
+  snapshot: Promise<ClipboardSnapshot> | null
   language: string
   sampleRate: number
   stream: DeepgramStream | null
@@ -51,7 +54,6 @@ interface Session {
   bufferedBytes: number
   preRoll: Buffer[]
   hasSpeech: boolean
-  interim: string
   durationMs: number
   captureDone: boolean
   captureResolve: ((done: CaptureDone) => void) | null
@@ -60,8 +62,18 @@ interface Session {
 }
 
 const MAX_RECORDING_MS = 5 * 60 * 1000
-const MAX_AUDIO_BYTES = 20 * 1024 * 1024
+// Room for the longest recording at 48 kHz mono 16-bit, so a long clip is never cut short.
+const MAX_AUDIO_BYTES = (MAX_RECORDING_MS / 1000) * 48_000 * 2
 const MIN_RECORDING_MS = 250
+// The key-up reaches us a few tens of ms before the last syllable has left the
+// microphone buffer; keep recording briefly so the final word is not clipped.
+const TAIL_MS = 120
+
+// States that only linger so the overlay can show an outcome; a new press must
+// not wait for the hide timer.
+const SETTLED_STATES: ReadonlySet<DictationState> = new Set(['idle', 'done', 'skipped', 'error', 'cancelled'])
+
+type StopResult = { ok: boolean; reason?: string; text?: string; state: DictationState }
 
 export class DictationEngine {
   private state: DictationState = 'idle'
@@ -97,6 +109,7 @@ export class DictationEngine {
       startedAt: event.startedAt ?? this.session?.startedAt,
       elapsedMs: event.elapsedMs ?? (this.session ? Date.now() - this.session.startedAt : undefined),
       insert: event.insert ?? this.session?.insert,
+      source: event.source ?? this.session?.source,
       sounds: this.deps.store.settings.overlay.sounds
     })
     this.deps.sendHub('state', this.getState())
@@ -152,8 +165,13 @@ export class DictationEngine {
     }
   }
 
-  async start(insert = true): Promise<{ ok: boolean; reason?: string; state: DictationState }> {
-    if (this.state !== 'idle' || this.session) {
+  async start(
+    insert = true,
+    source: 'key' | 'ui' = 'key'
+  ): Promise<{ ok: boolean; reason?: string; state: DictationState }> {
+    // `session` is only assigned after the first await below, so `starting` is what
+    // keeps a second press (key plus tray or CLI) from opening a second capture.
+    if (this.starting || !SETTLED_STATES.has(this.state) || this.session) {
       return { ok: false, reason: 'busy', state: this.state }
     }
     this.starting = true
@@ -175,6 +193,9 @@ export class DictationEngine {
         appTitle: active.title.slice(0, 240),
         target: active,
         insert,
+        source,
+        releasedAt: 0,
+        snapshot: null,
         language: settings.stt.language,
         sampleRate: settings.audio.sampleRate,
         stream: null,
@@ -184,7 +205,6 @@ export class DictationEngine {
         bufferedBytes: 0,
         preRoll: [],
         hasSpeech: false,
-        interim: '',
         durationMs: 0,
         captureDone: false,
         captureResolve: null,
@@ -229,24 +249,16 @@ export class DictationEngine {
       this.deps.sendCapture('capture:go')
       return
     }
-    const stream = new DeepgramStream({
-      ...this.deepgramOptions(settings, session.sampleRate),
-      onInterim: (text) => {
-        if (this.session !== session) return
-        session.interim = text
-        this.setState({ state: 'listening', message: 'Listening', interim: text })
-      },
-      onFinal: (text) => {
-        if (this.session !== session) return
-        session.interim = ''
-        this.setState({ state: 'listening', message: 'Listening', interim: text })
-      },
-      onError: (error) => {
-        if (this.session !== session) return
-        session.streamFailed = true
-        log.warn('[dictation] streaming failed; will retry as batch', error)
-      }
-    })
+    let stream: DeepgramStream
+    try {
+      stream = this.openStream(session, settings)
+    } catch (error) {
+      // Without a stream the clip still goes out as one batch request on release.
+      session.streamFailed = true
+      log.warn('[dictation] could not create the deepgram stream; recording for batch', String(error))
+      this.deps.sendCapture('capture:go')
+      return
+    }
     session.stream = stream
 
     try {
@@ -267,6 +279,25 @@ export class DictationEngine {
 
     // Capture already started forwarding frames as soon as the mic was ready.
     this.deps.sendCapture('capture:go')
+  }
+
+  private openStream(session: Session, settings: Settings): DeepgramStream {
+    return new DeepgramStream({
+      ...this.deepgramOptions(settings, session.sampleRate),
+      onInterim: (text) => {
+        if (this.session !== session) return
+        this.setState({ state: 'listening', message: 'Listening', interim: text })
+      },
+      onFinal: (text) => {
+        if (this.session !== session) return
+        this.setState({ state: 'listening', message: 'Listening', interim: text })
+      },
+      onError: (error) => {
+        if (this.session !== session) return
+        session.streamFailed = true
+        log.warn('[dictation] streaming failed; will retry as batch', error)
+      }
+    })
   }
 
   onChunk(pcm: Buffer, rms: number): void {
@@ -339,9 +370,13 @@ export class DictationEngine {
     })
   }
 
-  async stop(): Promise<{ ok: boolean; reason?: string; text?: string; state: DictationState }> {
+  private cancelledResult(): StopResult {
+    return { ok: false, reason: 'cancelled', state: this.state }
+  }
+
+  async stop(): Promise<StopResult> {
     log.info('[dictation] stop called', { state: this.state, hasSession: Boolean(this.session) })
-    if (this.starting && this.state === 'idle') {
+    if (this.starting && this.state !== 'listening') {
       // The release can arrive before the press request has finished opening the
       // capture path. Remember it and stop as soon as start settles.
       this.pendingStop = true
@@ -353,9 +388,17 @@ export class DictationEngine {
       return { ok: false, reason: 'not-listening', state: this.state }
     }
     if (session.maxTimer) clearTimeout(session.maxTimer)
+    session.releasedAt = Date.now()
+    // Independent of the transcript, so let it run while we transcribe.
+    if (session.insert && this.deps.store.settings.insert.mode === 'paste') {
+      session.snapshot = snapshotClipboard()
+    }
     this.setState({ state: 'transcribing', message: 'Transcribing' })
 
+    await new Promise((resolve) => setTimeout(resolve, TAIL_MS))
+    if (this.session !== session) return this.cancelledResult()
     await this.stopCapture(session)
+    if (this.session !== session) return this.cancelledResult()
     const durationMs = session.durationMs || Date.now() - session.startedAt
     const pcm = Buffer.concat(session.chunks)
     if (process.env.REVERSEUNO_DUMP_AUDIO && pcm.length > 0) {
@@ -375,10 +418,10 @@ export class DictationEngine {
 
     if (!session.hasSpeech || pcm.length === 0 || durationMs < MIN_RECORDING_MS) {
       this.deps.sendLevel(0)
-      this.setState({ state: 'done', message: 'Too short. Hold while you speak.', elapsedMs: durationMs })
-      this.scheduleHide(700)
+      this.setState({ state: 'skipped', message: 'Too short. Hold while you speak.', elapsedMs: durationMs })
+      this.scheduleHide(1100)
       this.session = null
-      return { ok: true, reason: 'too-short', state: 'done' }
+      return { ok: true, reason: 'too-short', state: 'skipped' }
     }
 
     try {
@@ -397,7 +440,7 @@ export class DictationEngine {
     session: Session,
     pcm: Buffer,
     durationMs: number
-  ): Promise<{ ok: boolean; reason?: string; text?: string; state: DictationState }> {
+  ): Promise<StopResult> {
     const settings = this.deps.store.settings
     const asrStarted = Date.now()
     let stt: SttResult
@@ -406,19 +449,21 @@ export class DictationEngine {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       log.error('[dictation] transcription failed', message)
+      if (this.session !== session) return this.cancelledResult()
       await this.fail(`Transcription failed: ${message}`)
       return { ok: false, reason: 'transcription-failed', state: 'error' }
     }
+    if (this.session !== session) return this.cancelledResult()
     const asrMs = Date.now() - asrStarted
     const raw = sanitizeTranscript(stt.text)
     log.info('[dictation] transcribed', { provider: stt.provider, asrMs, chars: raw.length })
 
     if (!raw) {
       this.deps.sendLevel(0)
-      this.setState({ state: 'done', message: 'No speech detected', elapsedMs: durationMs })
+      this.setState({ state: 'skipped', message: 'No speech detected', elapsedMs: durationMs })
       this.scheduleHide(1100)
       this.session = null
-      return { ok: true, reason: 'empty', state: 'done' }
+      return { ok: true, reason: 'empty', state: 'skipped' }
     }
 
     let final = raw
@@ -433,7 +478,7 @@ export class DictationEngine {
       snippetId = snippet.snippet.id
       const used = snippet.snippet
       this.deps.store.updateSnippet(used.id, { uses: used.uses + 1 })
-    } else if (settings.format.enabled && settings.format.cleanup !== 'none') {
+    } else if (needsFormatting(raw, settings)) {
       this.setState({ state: 'formatting', message: 'Polishing', interim: raw })
       const key = this.deps.secrets.get('openrouter')
       const result = await formatTranscript(raw, settings, key, {
@@ -445,6 +490,7 @@ export class DictationEngine {
       formatted = result.formatted
       formatMs = result.latencyMs
       formatError = result.error
+      if (this.session !== session) return this.cancelledResult()
       if (formatError) log.warn('[dictation] formatting fell back', formatError)
       else log.info('[dictation] formatted', { formatMs })
     }
@@ -458,7 +504,10 @@ export class DictationEngine {
       this.setState({ state: 'inserting', message: 'Inserting', interim: final })
       const textToInsert =
         settings.insert.appendSpace && !/[\s\n]$/.test(final) ? `${final} ` : final
-      const result = await insertText(textToInsert, settings, session.target)
+      const result = await insertText(textToInsert, settings, session.target, {
+        releasedAt: session.releasedAt,
+        snapshot: session.snapshot ?? undefined
+      })
       inserted = result.ok
       insertError = result.error
       if (!result.ok) log.warn('[dictation] insert failed', result.error)
@@ -484,13 +533,18 @@ export class DictationEngine {
       style: settings.format.style,
       inserted,
       error: insertError,
-      wordCount: wordCount(final),
-      editDistance: undefined
+      wordCount: wordCount(final)
     }
     this.deps.store.addHistory(entry)
     if (snippetId) log.debug('[dictation] snippet used', snippetId)
     if (formatted) log.debug('[dictation] formatted', formatMs)
 
+    // Cancelled while the paste was in flight: the text is already in the target,
+    // so keep the history entry, but leave the overlay and any newer session alone.
+    if (this.session !== session) {
+      this.deps.sendHub('refresh')
+      return this.cancelledResult()
+    }
     this.deps.sendLevel(0)
     if (insertError) {
       this.setState({ state: 'error', message: 'Saved, but paste failed', error: insertError, text: final, entryId: entry.id })
@@ -540,22 +594,28 @@ export class DictationEngine {
   }
 
   async cancel(): Promise<{ ok: boolean; state: DictationState }> {
-    const session = this.session
-    if (!session) return { ok: true, state: this.state }
-    if (session.maxTimer) clearTimeout(session.maxTimer)
-    session.stream?.abort()
+    if (!this.session) return { ok: true, state: this.state }
+    this.abandonSession()
     this.deps.sendCapture('capture:cancel')
     this.deps.sendLevel(0)
-    this.session = null
     this.setState({ state: 'cancelled', message: 'Cancelled' })
     this.scheduleHide(700)
     log.info('[dictation] cancelled')
     return { ok: true, state: 'cancelled' }
   }
 
+  /** Mouse entry points (pill, tray, hub) have no key release, so they start and stop. */
+  /** Drops the live session: timer, Deepgram socket and the reference that gates the pipeline. */
+  private abandonSession(): void {
+    const session = this.session
+    if (session?.maxTimer) clearTimeout(session.maxTimer)
+    session?.stream?.abort()
+    this.session = null
+  }
+
   async toggle(insert = true): Promise<unknown> {
     if (this.state === 'listening') return this.stop()
-    if (this.state === 'idle') return this.start(insert)
+    if (SETTLED_STATES.has(this.state)) return this.start(insert, 'ui')
     return { ok: false, reason: 'busy', state: this.state }
   }
 
@@ -577,11 +637,8 @@ export class DictationEngine {
   }
 
   async fail(message: string): Promise<void> {
-    const session = this.session
-    if (session?.maxTimer) clearTimeout(session.maxTimer)
-    session?.stream?.abort()
+    this.abandonSession()
     this.deps.sendCapture('capture:cancel')
-    this.session = null
     this.deps.sendLevel(0)
     this.setState({ state: 'error', message, error: message })
     this.scheduleHide(this.deps.store.settings.overlay.errorHideAfterMs)
@@ -596,16 +653,13 @@ export class DictationEngine {
   }
 
   async paste(text: string): Promise<{ ok: boolean; error?: string }> {
-    if (this.state !== 'idle') return { ok: false, error: 'busy' }
+    if (!SETTLED_STATES.has(this.state) || this.session) return { ok: false, error: 'busy' }
     const result = await insertText(text, this.deps.store.settings)
     return { ok: result.ok, error: result.error }
   }
 
   async dispose(): Promise<void> {
     this.clearHideTimer()
-    const session = this.session
-    if (session?.maxTimer) clearTimeout(session.maxTimer)
-    session?.stream?.abort()
-    this.session = null
+    this.abandonSession()
   }
 }

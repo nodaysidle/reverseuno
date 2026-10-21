@@ -101,7 +101,7 @@
   font-weight: 600;
   letter-spacing: 0;
   text-transform: none;
-  color: rgba(255, 252, 235, 0.5);
+  color: rgba(255, 252, 235, 0.68);
   background: rgba(255, 252, 235, 0.07);
   border-radius: 5px;
   padding: 1px 6px;
@@ -115,16 +115,23 @@
   font-family: var(--font-mono);
   font-size: 8px;
   letter-spacing: 0.06em;
-  color: rgba(255, 252, 235, 0.42);
+  color: rgba(255, 252, 235, 0.62);
 }
 .pill-preview {
   font-size: 10.5px;
   line-height: 1.35;
-  color: rgba(255, 252, 235, 0.48);
+  color: rgba(255, 252, 235, 0.64);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   min-height: 14px;
+}
+.pill.is-error .pill-status {
+  /* Errors carry the explanation; let it wrap instead of being cut off. */
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 .pill.is-error .pill-preview {
   color: rgba(255, 190, 173, 0.72);
@@ -133,7 +140,7 @@
   font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.04em;
-  color: rgba(255, 252, 235, 0.38);
+  color: rgba(255, 252, 235, 0.6);
   flex: 0 0 auto;
   padding-right: 2px;
 }
@@ -157,6 +164,10 @@
 .pill-state-icon.is-done {
   background: rgba(122, 226, 178, 0.16);
   color: #9fecc7;
+}
+.pill-state-icon.is-skipped {
+  background: rgba(255, 252, 235, 0.1);
+  color: rgba(255, 252, 235, 0.7);
 }
 .pill-state-icon.is-error {
   background: rgba(244, 91, 54, 0.18);

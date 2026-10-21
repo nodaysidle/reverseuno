@@ -78,7 +78,6 @@ export class DeepgramStream {
   private detectedLanguage = ''
   private audio: Buffer[] = []
   private audioBytes = 0
-  private metadataSeen = false
 
   constructor(private readonly options: DeepgramOptions) {}
 
@@ -173,7 +172,6 @@ export class DeepgramStream {
         this.options.onInterim?.(transcript)
       }
     } else if (type === 'Metadata') {
-      this.metadataSeen = true
       if (this.finishing) this.complete()
     } else if (type === 'Error' || type === 'error') {
       const description =

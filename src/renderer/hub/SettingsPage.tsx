@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react'
 import {
   Check,
-  ChevronRight,
   Clipboard,
   Download,
+  Keyboard,
   KeyRound,
   Mic,
-  RotateCcw,
   Trash2,
   Volume2,
   X
@@ -15,11 +14,9 @@ import type {
   AppRule,
   AudioDevice,
   Bootstrap,
-  CleanupLevel,
   ModelKind,
   ModelOption,
   PasteKeys,
-  SecretName,
   SecretStatus,
   StateEvent,
   SttProvider
@@ -157,11 +154,16 @@ function ProviderCard({
   const save = async () => {
     if (!value.trim()) return
     setBusy(true)
-    await window.api.setSecret(name, value.trim())
-    setValue('')
-    await refresh()
-    setBusy(false)
-    toast(`${title} key saved`, 'success')
+    try {
+      await window.api.setSecret(name, value.trim())
+      setValue('')
+      await refresh()
+      toast(`${title} key saved`, 'success')
+    } catch (error) {
+      toast(`Could not save the ${title} key: ${error instanceof Error ? error.message : String(error)}`, 'error')
+    } finally {
+      setBusy(false)
+    }
   }
 
   const test = async () => {
@@ -232,6 +234,15 @@ function ProviderCard({
   )
 }
 
+function invalidPattern(pattern: string): boolean {
+  try {
+    new RegExp(pattern, 'i')
+    return false
+  } catch {
+    return true
+  }
+}
+
 function AppRulesEditor({
   rules,
   onSave
@@ -256,16 +267,20 @@ function AppRulesEditor({
         <span />
       </div>
       {items.map((rule, index) => (
-        <div className="rule-row" key={`${rule.pattern}-${index}`}>
+        <div className="rule-row" key={index}>
           <input
             className="input rule-pattern"
             value={rule.pattern}
+            aria-invalid={invalidPattern(rule.pattern)}
+            title={invalidPattern(rule.pattern) ? 'Not a valid regular expression; this rule is ignored.' : undefined}
             onChange={(event) => {
               const next = items.slice()
               next[index] = { ...rule, pattern: event.target.value }
               setItems(next)
             }}
-            onBlur={() => commit(items)}
+            onBlur={() => {
+              if (!items.some((item) => invalidPattern(item.pattern))) commit(items)
+            }}
           />
           <select
             className="select"
@@ -342,14 +357,20 @@ export function SettingsPage({
     }
   }, [])
 
-  const save = async (patch: Parameters<typeof window.api.updateSettings>[0]) => {
-    await window.api.updateSettings(patch)
-    await refresh()
+  // One path for every control: a failed save says so instead of silently reverting.
+  const save = async (patch: Parameters<typeof window.api.updateSettings>[0]): Promise<boolean> => {
+    try {
+      await window.api.updateSettings(patch)
+      await refresh()
+      return true
+    } catch (error) {
+      toast(`Could not save: ${error instanceof Error ? error.message : String(error)}`, 'error')
+      return false
+    }
   }
 
   const saveAndToast = async (patch: Parameters<typeof window.api.updateSettings>[0], message = 'Saved') => {
-    await save(patch)
-    toast(message, 'success')
+    if (await save(patch)) toast(message, 'success')
   }
 
   const deepgram = data.secrets.find((item) => item.name === 'deepgram')!
@@ -397,7 +418,9 @@ o.bind("SUPER + Delete", "reverseuno cancel", "${cli} cancel")`
       >
         <div className="hotkey-card">
           <div className="hotkey-visual">
-            <span className="hotkey-key">⌘</span>
+            <span className="hotkey-key" aria-hidden="true">
+              <Keyboard size={22} />
+            </span>
             <div>
               <div className="hotkey-title">Right Super</div>
               <div className="hotkey-sub">
@@ -458,7 +481,7 @@ o.bind("SUPER + Delete", "reverseuno cancel", "${cli} cancel")`
             type="button"
             className="btn btn-primary btn-sm"
             onClick={() => void window.api.dictationToggle(false)}
-            disabled={state.state !== 'idle' && state.state !== 'listening'}
+            disabled={['transcribing', 'formatting', 'inserting'].includes(state.state)}
           >
             <Mic size={13} /> {state.state === 'listening' ? 'Stop test' : 'Test dictation'}
           </button>
@@ -573,7 +596,17 @@ o.bind("SUPER + Delete", "reverseuno cancel", "${cli} cancel")`
               <input
                 className="input"
                 defaultValue={settings.format.baseUrl}
-                onBlur={(event) => void save({ format: { baseUrl: event.target.value.trim() } })}
+                placeholder="https://openrouter.ai/api/v1"
+                onBlur={(event) => {
+                  const next = event.target.value.trim()
+                  if (next === settings.format.baseUrl) return
+                  if (next && !/^https?:\/\/\S+$/i.test(next)) {
+                    toast('Base URL must start with http:// or https://', 'error')
+                    event.target.value = settings.format.baseUrl
+                    return
+                  }
+                  void save({ format: { baseUrl: next } })
+                }}
               />
             </label>
           }
@@ -621,7 +654,7 @@ o.bind("SUPER + Delete", "reverseuno cancel", "${cli} cancel")`
           />
         </SettingRow>
 
-        <SettingRow label="Append a trailing space" hint="Matches Wispr's paste behaviour between sentences.">
+        <SettingRow label="Append a trailing space" hint="Puts a space after the pasted text so the next sentence does not run into it.">
           <Toggle
             checked={settings.insert.appendSpace}
             label="Append trailing space"
@@ -660,7 +693,8 @@ o.bind("SUPER + Delete", "reverseuno cancel", "${cli} cancel")`
           }
         >
           <Segmented
-            value={settings.appearance.theme}
+            // Without an Omarchy theme the hub renders Paper, so show that as selected.
+            value={data.theme ? settings.appearance.theme : 'paper'}
             options={[
               { value: 'omarchy', label: 'Omarchy' },
               { value: 'paper', label: 'Paper' }
@@ -670,7 +704,7 @@ o.bind("SUPER + Delete", "reverseuno cancel", "${cli} cancel")`
         </SettingRow>
       </Section>
 
-      <Section title="Overlay" description="The Flow Bar, our way.">
+      <Section title="Overlay" description="The pill that shows while you talk.">
         <SettingRow label="Show at rest" hint="A small pill stays visible when nothing is happening.">
           <Toggle
             checked={settings.overlay.showAtRest}
@@ -792,7 +826,7 @@ o.bind("SUPER + Delete", "reverseuno cancel", "${cli} cancel")`
         </SettingRow>
       </Section>
 
-      <Section title="About" description="A clean-room rebuild of the Wispr Flow pipeline for Linux.">
+      <Section title="About" description="Push-to-talk dictation for Linux, local-first.">
         <div className="about-grid">
           <div>
             <span>Version</span>
@@ -820,7 +854,8 @@ o.bind("SUPER + Delete", "reverseuno cancel", "${cli} cancel")`
           </div>
         </div>
         <p className="about-note">
-          Audio is streamed to Deepgram and never written to disk. Transcripts, dictionary, snippets
+          Audio goes only to the speech provider you chose (Deepgram while you talk, or OpenRouter
+          when you release) and is never written to disk. Transcripts, dictionary, snippets
           and settings stay in the config directory above. No analytics, no account, no telemetry.
         </p>
       </Section>

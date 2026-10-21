@@ -8,6 +8,7 @@ const target = { class: 'com.mitchellh.ghostty', title: 'fish', address: '0xabc'
 
 vi.mock('../src/main/paste', () => ({
   getActiveWindow: vi.fn(async () => target),
+  snapshotClipboard: vi.fn(async () => ({ text: null, image: null, types: [] })),
   insertText: vi.fn(async (_text: string, _settings: unknown, window?: typeof target) => ({
     ok: true,
     method: 'paste',
@@ -27,6 +28,7 @@ vi.mock('../src/main/stt/openrouter', () => ({
 }))
 vi.mock('../src/main/stt/deepgram', () => ({ DeepgramStream: vi.fn(), transcribeBuffer: vi.fn() }))
 vi.mock('../src/main/format', () => ({
+  needsFormatting: vi.fn(() => true),
   formatTranscript: vi.fn(async (raw: string) => ({ text: `${raw}.`, formatted: true, latencyMs: 5 }))
 }))
 
@@ -112,9 +114,67 @@ describe('dictation engine', () => {
     await engine.onCaptureReady({ sampleRate: 16000 })
     const result = await engine.stop()
 
-    expect(result).toMatchObject({ reason: 'too-short' })
+    expect(result).toMatchObject({ reason: 'too-short', state: 'skipped' })
     expect(paste.insertText).not.toHaveBeenCalled()
+    expect(events.at(-1)).toMatchObject({ state: 'skipped' })
     expect(events.at(-1)?.message).toMatch(/Hold while you speak/)
+  })
+
+  it('does not paste or report success when cancelled while transcribing', async () => {
+    const openrouter = await import('../src/main/stt/openrouter')
+    let release: (value: Awaited<ReturnType<typeof openrouter.transcribeOpenRouter>>) => void = () => undefined
+    vi.mocked(openrouter.transcribeOpenRouter).mockImplementationOnce(
+      () => new Promise((resolve) => (release = resolve))
+    )
+    await record()
+    const stopping = engine.stop()
+    await vi.waitFor(() => expect(openrouter.transcribeOpenRouter).toHaveBeenCalledTimes(1))
+    await engine.cancel()
+    release({ text: 'late words', language: 'en', provider: 'openrouter', model: 'm' })
+    const result = await stopping
+
+    expect(result).toMatchObject({ ok: false, reason: 'cancelled' })
+    expect(paste.insertText).not.toHaveBeenCalled()
+    expect(events.at(-1)).toMatchObject({ state: 'cancelled' })
+  })
+
+  it('does not let a late result clobber a session started after the cancel', async () => {
+    const openrouter = await import('../src/main/stt/openrouter')
+    let release: (value: Awaited<ReturnType<typeof openrouter.transcribeOpenRouter>>) => void = () => undefined
+    vi.mocked(openrouter.transcribeOpenRouter).mockImplementationOnce(
+      () => new Promise((resolve) => (release = resolve))
+    )
+    await record()
+    const stopping = engine.stop()
+    await vi.waitFor(() => expect(openrouter.transcribeOpenRouter).toHaveBeenCalledTimes(1))
+    await engine.cancel()
+    await engine.start(true)
+    release({ text: 'late words', language: 'en', provider: 'openrouter', model: 'm' })
+    await stopping
+
+    expect(engine.getState().state).toBe('listening')
+    await engine.cancel()
+  })
+
+  it('lets a new press start right after an outcome is shown', async () => {
+    await record()
+    await engine.stop()
+    expect(engine.getState().state).toBe('done')
+    expect(await engine.start(true)).toMatchObject({ ok: true })
+    await engine.cancel()
+  })
+
+  it('opens only one session when two starts race', async () => {
+    const [first, second] = await Promise.all([engine.start(true), engine.start(true)])
+    expect([first.ok, second.ok].sort()).toEqual([false, true])
+    expect(paste.getActiveWindow).toHaveBeenCalledTimes(1)
+    await engine.cancel()
+  })
+
+  it('marks mouse-started sessions so the overlay does not promise a key release', async () => {
+    await engine.toggle(true)
+    expect(events.at(-1)).toMatchObject({ state: 'listening', source: 'ui' })
+    await engine.cancel()
   })
 
   it('rejects a second start while busy', async () => {
