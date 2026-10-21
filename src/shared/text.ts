@@ -52,6 +52,33 @@ function escapeRegExp(value: string): string {
 }
 
 /**
+ * The spellings worth telling the speech and formatting models about, best first.
+ * Both only have room for a few dozen, so ranking matters: an entry with a
+ * correction contributes the corrected spelling (never the mis-hearing), entries
+ * pointing at the same spelling are merged, and a spelling with many known
+ * mis-hearings ranks high because those are the words recognition gets wrong.
+ */
+export function preferredSpellings(entries: DictionaryEntry[], limit: number): string[] {
+  const merged = new Map<string, { term: string; starred: boolean; uses: number; variants: number; order: number }>()
+  entries.forEach((entry, order) => {
+    const word = entry.word.trim()
+    const correction = entry.correction?.trim()
+    const term = correction || word
+    if (!term) return
+    const key = term.toLowerCase()
+    const slot = merged.get(key) ?? { term, starred: false, uses: 0, variants: 0, order }
+    slot.starred ||= entry.starred
+    slot.uses += entry.uses
+    if (correction && correction.toLowerCase() !== word.toLowerCase()) slot.variants += 1
+    merged.set(key, slot)
+  })
+  return [...merged.values()]
+    .sort((a, b) => Number(b.starred) - Number(a.starred) || b.uses - a.uses || b.variants - a.variants || a.order - b.order)
+    .slice(0, Math.max(0, limit))
+    .map((slot) => slot.term)
+}
+
+/**
  * Rewrites dictionary words in the final text. An entry with a correction
  * replaces the word; one without enforces its own spelling, so `fastfetch`
  * stays lowercase even where a sentence starts.

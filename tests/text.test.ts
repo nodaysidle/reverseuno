@@ -4,9 +4,11 @@ import {
   diffTokens,
   expandSnippet,
   isLearnable,
+  preferredSpellings,
   sanitizeTranscript,
   wordCount
 } from '@shared/text'
+import { DEVELOPER_VOCABULARY } from '@shared/vocabulary'
 import type { DictionaryEntry, Snippet } from '@shared/types'
 
 const entry = (word: string, correction?: string): DictionaryEntry => ({
@@ -128,5 +130,31 @@ describe('wordCount', () => {
   it('counts tokens', () => {
     expect(wordCount('  one two   three ')).toBe(3)
     expect(wordCount('')).toBe(0)
+  })
+})
+
+describe('preferredSpellings', () => {
+  it('sends the corrected spelling, never the mis-hearing, and merges duplicates', () => {
+    const entries = [entry('nodaysidle'), entry('no days idle', 'nodaysidle'), entry('nodays idle', 'nodaysidle')]
+    expect(preferredSpellings(entries, 10)).toEqual(['nodaysidle'])
+  })
+
+  it('ranks starred and used words first, then words with known mis-hearings', () => {
+    const entries = [
+      entry('htop'),
+      entry('Koper'),
+      { ...entry('Ljubljana'), starred: true },
+      entry('no days idle', 'nodaysidle'),
+      entry('nodays idle', 'nodaysidle')
+    ]
+    expect(preferredSpellings(entries, 3)).toEqual(['Ljubljana', 'nodaysidle', 'htop'])
+  })
+
+  it('keeps a brand with mis-hearings inside the keyterm limit when the developer pack is added', () => {
+    // Pack words are stored with uses 0, so only the mis-hearing count can lift a brand.
+    const pack = DEVELOPER_VOCABULARY.map((item) => ({ ...entry(item.word, item.correction), uses: 0 }))
+    const top = preferredSpellings(pack, 50)
+    expect(top).toContain('nodaysidle')
+    expect(top).not.toContain('no days idle')
   })
 })

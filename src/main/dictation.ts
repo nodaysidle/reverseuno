@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { LANGUAGE_OPTIONS } from '@shared/defaults'
-import { applyDictionary, expandSnippet, sanitizeTranscript, wordCount } from '@shared/text'
+import { applyDictionary, expandSnippet, preferredSpellings, sanitizeTranscript, wordCount } from '@shared/text'
 import { pcm16ToWav } from '@shared/wav'
 import type { DictationEntry, DictationState, Settings, StateEvent } from '@shared/types'
 import { DeepgramStream, transcribeBuffer, type SttResult } from './stt/deepgram'
@@ -144,12 +144,7 @@ export class DictationEngine {
   }
 
   private keyterms(settings: Settings): string[] {
-    return this.deps.store.dictionary
-      .slice()
-      .sort((a, b) => Number(b.starred) - Number(a.starred) || b.uses - a.uses)
-      .map((entry) => entry.word)
-      .filter(Boolean)
-      .slice(0, settings.stt.keytermLimit)
+    return preferredSpellings(this.deps.store.dictionary, settings.stt.keytermLimit)
   }
 
   private deepgramOptions(settings: Settings, sampleRate: number) {
@@ -487,7 +482,7 @@ export class DictationEngine {
       this.setState({ state: 'formatting', message: 'Polishing', interim: raw })
       const key = this.deps.secrets.get('openrouter')
       const result = await formatTranscript(raw, settings, key, {
-        dictionary: this.deps.store.dictionary.map((entry) => entry.word),
+        dictionary: preferredSpellings(this.deps.store.dictionary, 80),
         appClass: session.appClass,
         appTitle: session.appTitle
       })
