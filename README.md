@@ -35,7 +35,7 @@ Hold Right Super
   → speak
   → release
   → transcribe (Deepgram Nova-3 streaming, or an OpenRouter model)
-  → polish (OpenRouter) + dictionary spellings
+  → polish (OpenRouter or Anthropic) + dictionary spellings
   → paste into the window you started in
 ```
 
@@ -81,11 +81,13 @@ BYOK. No keys ship with the app.
 |---|---|---|
 | **Deepgram Nova-3** | Default speech-to-text. WebSocket streaming with interim results, dictionary keyterms, whole-clip batch fallback. | Audio to Deepgram while you speak |
 | **OpenRouter STT** | Alternative speech-to-text: any model from OpenRouter's transcription catalogue (default `openai/gpt-4o-mini-transcribe`). No live preview. | Audio to OpenRouter on release |
-| **OpenRouter formatter** | Cleanup and style. Hard timeout; falls back to the raw transcript. | Transcript text to OpenRouter |
+| **OpenRouter formatter** | Default cleanup and style. Hard timeout; falls back to the raw transcript. | Transcript text to OpenRouter |
+| **Anthropic formatter** | Alternative cleanup and style, straight to the Claude API (default `claude-haiku-5-5`, low effort). Same timeout and fallback. | Transcript text to Anthropic |
 
-Pick the speech provider and models in Settings → Providers; the model fields suggest
-from OpenRouter's live lists. Keys are read from Settings, then `DEEPGRAM_API_KEY` /
-`OPENROUTER_API_KEY`, then `~/.config/whisper-bar/config.env`.
+Pick the speech provider, the text-formatting provider and models in Settings →
+Providers; the OpenRouter model fields suggest from OpenRouter's live lists. Keys are
+read from Settings, then `DEEPGRAM_API_KEY` / `OPENROUTER_API_KEY` /
+`ANTHROPIC_API_KEY`, then `~/.config/whisper-bar/config.env`.
 
 For accented English, set Language to **English** rather than Multilingual: the
 recogniser then never guesses another language.
@@ -98,7 +100,7 @@ recogniser then never guesses another language.
 | UI | React 19, plain CSS with theme tokens |
 | Audio | `getUserMedia` + `AudioWorklet`, 640-sample (40 ms) frames |
 | Speech-to-text | Deepgram WebSocket / REST, OpenRouter `/audio/transcriptions` |
-| Formatting | OpenRouter chat completions |
+| Formatting | OpenRouter chat completions, or the Anthropic Messages API (`@anthropic-ai/sdk`) |
 | Insertion | `wl-copy` / `wl-paste`, `wtype`, `hyprctl` refocus |
 | Hotkeys | Hyprland binds → `reverseuno` CLI → local HTTP control server |
 | Storage | JSON in `~/.config/reverseuno/`; keys via `safeStorage` |
@@ -192,7 +194,7 @@ reverseuno CLI ──HTTP──▶ Electron main (DictationEngine)
                               │
         ┌─────────────────────┼────────────────────────┐
         ▼                     ▼                        ▼
-  capture renderer      Deepgram WS / OpenRouter  formatter (OpenRouter)
+  capture renderer      Deepgram WS / OpenRouter  formatter (OpenRouter or Anthropic)
   AudioWorklet          interim + final           cleanup + style + dictionary
   16 kHz, 40 ms         batch fallback            timeout + raw fallback
         │
@@ -207,7 +209,7 @@ reverseuno CLI ──HTTP──▶ Electron main (DictationEngine)
 |---|---|
 | `src/main/dictation.ts` | State machine, streaming, fallback, formatting, insertion, history |
 | `src/main/stt/` | Deepgram (WebSocket + batch) and OpenRouter clients |
-| `src/main/format.ts` | Formatter prompt and OpenRouter call |
+| `src/main/format.ts` | Formatter prompt and the OpenRouter and Anthropic calls |
 | `src/main/paste.ts` | Hyprland window lookup and refocus, clipboard snapshot/restore, `wtype` rules |
 | `src/main/theme.ts` | Reads and watches the active Omarchy theme |
 | `src/main/index.ts` | Windows, IPC, control server, tray, autostart |
@@ -230,8 +232,9 @@ reverseuno CLI ──HTTP──▶ Electron main (DictationEngine)
 
 - Audio is streamed to Deepgram (or sent once to OpenRouter on release), held in
   memory for that request only, and never written to disk.
-- The transcript goes to OpenRouter when formatting is on; app class and window title
-  can be sent as context (turn it off in Style).
+- The transcript goes to the chosen formatter (OpenRouter or Anthropic) when
+  formatting is on; app class and window title can be sent as context (turn it off
+  in Style).
 - History, dictionary, snippets and settings stay in `~/.config/reverseuno/`.
 
 No accounts, no analytics, no telemetry.
