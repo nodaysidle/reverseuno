@@ -9,7 +9,7 @@
     <img src="https://img.shields.io/badge/Wayland-wtype%20%2B%20wl--clipboard-151518?style=flat-square" alt="Wayland">
     <img src="https://img.shields.io/badge/Electron-44-47848F?style=flat-square&logo=electron&logoColor=white" alt="Electron 44">
     <img src="https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript strict">
-    <img src="https://img.shields.io/badge/tests-60%20passing-4c8c6b?style=flat-square" alt="60 tests passing">
+    <img src="https://img.shields.io/badge/tests-80%20passing-4c8c6b?style=flat-square" alt="80 tests passing">
     <img src="https://img.shields.io/badge/telemetry-none-4c8c6b?style=flat-square" alt="No telemetry">
     <img src="https://img.shields.io/badge/version-0.1.0-8e8e96?style=flat-square" alt="Version 0.1.0">
   </p>
