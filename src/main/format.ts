@@ -1,3 +1,4 @@
+import Anthropic from '@anthropic-ai/sdk'
 import { wordCount } from '@shared/text'
 import type { CleanupLevel, Settings, WritingStyle } from '@shared/types'
 
@@ -126,55 +127,92 @@ export async function formatTranscript(
     includeAppContext: settings.format.includeAppContext
   })
 
-  const url = `${openRouterBase(settings)}/chat/completions`
-  const headers = openRouterHeaders(apiKey)
+  const timeoutMs = Math.max(1000, settings.format.timeoutMs)
+  const fail = (error: string): FormatResult => ({ text: raw, formatted: false, latencyMs: Date.now() - started, error })
 
+  let content: string
   try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: settings.format.model,
-        temperature: 0.2,
-        max_tokens: 2048,
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: raw }
-        ]
-      }),
-      signal: AbortSignal.timeout(Math.max(1000, settings.format.timeoutMs))
-    })
-
-    if (!response.ok) {
-      const body = await response.text().catch(() => '')
-      return {
-        text: raw,
-        formatted: false,
-        latencyMs: Date.now() - started,
-        error: `format ${response.status}: ${body.slice(0, 200)}`
-      }
-    }
-
-    const data = (await response.json()) as {
-      choices?: { message?: { content?: string } }[]
-    }
-    const content = data.choices?.[0]?.message?.content ?? ''
-    const text = cleanResponse(content)
-    if (!text) {
-      return { text: raw, formatted: false, latencyMs: Date.now() - started, error: 'empty format response' }
-    }
-    // A runaway rewrite is more likely a model failure than a valid result.
-    if (text.length > raw.length * 3 + 160) {
-      return { text: raw, formatted: false, latencyMs: Date.now() - started, error: 'format response too long' }
-    }
-    return { text, formatted: true, latencyMs: Date.now() - started }
+    content =
+      settings.format.provider === 'anthropic'
+        ? await completeWithAnthropic(settings.format.anthropicModel, system, raw, apiKey, timeoutMs)
+        : await completeWithOpenRouter(settings, system, raw, apiKey, timeoutMs)
   } catch (error) {
-    return {
-      text: raw,
-      formatted: false,
-      latencyMs: Date.now() - started,
-      error: error instanceof Error ? error.message : String(error)
+    return fail(error instanceof Error ? error.message : String(error))
+  }
+
+  const text = cleanResponse(content)
+  if (!text) return fail('empty format response')
+  // A runaway rewrite is more likely a model failure than a valid result.
+  if (text.length > raw.length * 3 + 160) return fail('format response too long')
+  return { text, formatted: true, latencyMs: Date.now() - started }
+}
+
+async function completeWithOpenRouter(
+  settings: Settings,
+  system: string,
+  raw: string,
+  apiKey: string,
+  timeoutMs: number
+): Promise<string> {
+  const response = await fetch(`${openRouterBase(settings)}/chat/completions`, {
+    method: 'POST',
+    headers: openRouterHeaders(apiKey),
+    body: JSON.stringify({
+      model: settings.format.model,
+      temperature: 0.2,
+      max_tokens: 2048,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: raw }
+      ]
+    }),
+    signal: AbortSignal.timeout(timeoutMs)
+  })
+  if (!response.ok) {
+    const body = await response.text().catch(() => '')
+    throw new Error(`format ${response.status}: ${body.slice(0, 200)}`)
+  }
+  const data = (await response.json()) as { choices?: { message?: { content?: string } }[] }
+  return data.choices?.[0]?.message?.content ?? ''
+}
+
+// Thinking stays on at low effort: with it off, Haiku answered short dictations
+// ("and you get one call") as a chatbot; at the API's default (medium) it overran the time budget.
+async function completeWithAnthropic(
+  model: string,
+  system: string,
+  raw: string,
+  apiKey: string,
+  timeoutMs: number
+): Promise<string> {
+  // No retries: a retry cannot finish inside the dictation's time budget.
+  const client = new Anthropic({ apiKey, timeout: timeoutMs, maxRetries: 0 })
+  try {
+    const message = await client.messages.create({
+      model,
+      max_tokens: 4096,
+      output_config: { effort: 'low' },
+      system,
+      messages: [{ role: 'user', content: raw }]
+    })
+    if (message.stop_reason === 'refusal') throw new Error('format refused by the model')
+    return message.content.map((block) => (block.type === 'text' ? block.text : '')).join('')
+  } catch (error) {
+    if (error instanceof Anthropic.APIError && error.status) {
+      throw new Error(`format ${error.status}: ${error.message.slice(0, 200)}`)
     }
+    throw error
+  }
+}
+
+export async function validateAnthropicKey(apiKey: string): Promise<{ ok: boolean; message: string }> {
+  if (!apiKey) return { ok: false, message: 'No Anthropic key set' }
+  try {
+    await new Anthropic({ apiKey, timeout: 8000, maxRetries: 0 }).models.list({ limit: 1 })
+    return { ok: true, message: 'Anthropic key works' }
+  } catch (error) {
+    if (error instanceof Anthropic.AuthenticationError) return { ok: false, message: 'Anthropic rejected the key' }
+    return { ok: false, message: `Anthropic check failed: ${error instanceof Error ? error.message : String(error)}` }
   }
 }
 

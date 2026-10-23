@@ -14,9 +14,11 @@ import type {
   AppRule,
   AudioDevice,
   Bootstrap,
+  FormatProvider,
   ModelKind,
   ModelOption,
   PasteKeys,
+  SecretName,
   SecretStatus,
   StateEvent,
   SttProvider
@@ -137,7 +139,7 @@ function ProviderCard({
   refresh,
   toast
 }: {
-  name: 'deepgram' | 'openrouter'
+  name: SecretName
   title: string
   description: string
   status: SecretStatus
@@ -375,6 +377,8 @@ export function SettingsPage({
 
   const deepgram = data.secrets.find((item) => item.name === 'deepgram')!
   const openrouter = data.secrets.find((item) => item.name === 'openrouter')!
+  const anthropic = data.secrets.find((item) => item.name === 'anthropic')!
+  const formatProvider = settings.format.provider
 
   // Absolute path: Hyprland's exec environment does not always have ~/.local/bin on PATH.
   const cli = data.paths.cli
@@ -491,9 +495,9 @@ o.bind("SUPER + Delete", "reverseuno cancel", "${cli} cancel")`
       <Section
         title="Providers"
         description={
-          sttProvider === 'openrouter'
-            ? 'Audio and text both go to OpenRouter. Keys never leave this machine except to that API.'
-            : 'Audio goes to Deepgram. Text goes to OpenRouter. Keys never leave this machine except to those APIs.'
+          `Audio goes to ${sttProvider === 'openrouter' ? 'OpenRouter' : 'Deepgram'}. Text goes to ${
+            formatProvider === 'anthropic' ? 'Anthropic' : 'OpenRouter'
+          }. Keys never leave this machine except to those APIs.`
         }
       >
         <SettingRow
@@ -511,6 +515,22 @@ o.bind("SUPER + Delete", "reverseuno cancel", "${cli} cancel")`
               { value: 'openrouter', label: 'OpenRouter' }
             ]}
             onChange={(value) => void saveAndToast({ stt: { provider: value as SttProvider } }, 'Speech provider saved')}
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Text formatting"
+          hint="Who polishes the transcript. Anthropic bills your Claude API key directly."
+        >
+          <Segmented
+            value={formatProvider}
+            options={[
+              { value: 'openrouter', label: 'OpenRouter' },
+              { value: 'anthropic', label: 'Anthropic' }
+            ]}
+            onChange={(value) =>
+              void saveAndToast({ format: { provider: value as FormatProvider } }, 'Formatting provider saved')
+            }
           />
         </SettingRow>
 
@@ -561,8 +581,12 @@ o.bind("SUPER + Delete", "reverseuno cancel", "${cli} cancel")`
           title="OpenRouter"
           description={
             sttProvider === 'openrouter'
-              ? 'Speech-to-text and formatting. One transcription and one chat completion per dictation.'
-              : 'The formatting layer. One chat completion per dictation, with a short timeout.'
+              ? formatProvider === 'openrouter'
+                ? 'Speech-to-text and formatting. One transcription and one chat completion per dictation.'
+                : 'Speech-to-text. One transcription per dictation.'
+              : formatProvider === 'openrouter'
+                ? 'The formatting layer. One chat completion per dictation, with a short timeout.'
+                : 'Not used while Deepgram and Anthropic handle speech and formatting.'
           }
           status={openrouter}
           placeholder="OPENROUTER_API_KEY"
@@ -578,14 +602,16 @@ o.bind("SUPER + Delete", "reverseuno cancel", "${cli} cancel")`
                   />
                 </label>
               ) : null}
-              <label className="provider-option">
-                <span>Formatter model</span>
-                <ModelField
-                  kind="format"
-                  value={settings.format.model}
-                  onSave={(value) => void saveAndToast({ format: { model: value } }, 'Formatter model saved')}
-                />
-              </label>
+              {formatProvider === 'openrouter' ? (
+                <label className="provider-option">
+                  <span>Formatter model</span>
+                  <ModelField
+                    kind="format"
+                    value={settings.format.model}
+                    onSave={(value) => void saveAndToast({ format: { model: value } }, 'Formatter model saved')}
+                  />
+                </label>
+              ) : null}
             </>
           }
           refresh={refresh}
@@ -610,6 +636,38 @@ o.bind("SUPER + Delete", "reverseuno cancel", "${cli} cancel")`
               />
             </label>
           }
+        />
+
+        <ProviderCard
+          name="anthropic"
+          title="Anthropic"
+          description={
+            formatProvider === 'anthropic'
+              ? 'The formatting layer, straight to the Claude API. One message per dictation, with a short timeout.'
+              : 'Not used while OpenRouter formats the text.'
+          }
+          status={anthropic}
+          placeholder="ANTHROPIC_API_KEY"
+          models={
+            <label className="provider-option">
+              <span>Formatter model</span>
+              <input
+                className="input"
+                defaultValue={settings.format.anthropicModel}
+                placeholder="claude-haiku-5-5"
+                onBlur={(event) => {
+                  const next = event.target.value.trim()
+                  if (!next || next === settings.format.anthropicModel) {
+                    event.target.value = settings.format.anthropicModel
+                    return
+                  }
+                  void saveAndToast({ format: { anthropicModel: next } }, 'Formatter model saved')
+                }}
+              />
+            </label>
+          }
+          refresh={refresh}
+          toast={toast}
         />
 
         <div className="provider-note">

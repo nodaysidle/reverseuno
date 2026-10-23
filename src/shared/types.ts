@@ -34,8 +34,11 @@ export interface Settings {
   }
   format: {
     enabled: boolean
-    provider: 'openrouter'
+    provider: FormatProvider
+    /** OpenRouter model id, used when provider is 'openrouter'. */
     model: string
+    /** Anthropic model id, used when provider is 'anthropic'. */
+    anthropicModel: string
     baseUrl: string
     cleanup: CleanupLevel
     style: WritingStyle
@@ -98,6 +101,7 @@ export interface ThemePalette {
 }
 
 export type SttProvider = 'deepgram' | 'openrouter'
+export type FormatProvider = 'openrouter' | 'anthropic'
 
 export type ModelKind = 'format' | 'stt'
 
@@ -176,7 +180,7 @@ export interface StoreData {
   suggestions: Suggestion[]
 }
 
-export type SecretName = 'deepgram' | 'openrouter'
+export type SecretName = 'deepgram' | 'openrouter' | 'anthropic'
 
 export interface SecretStatus {
   name: SecretName
@@ -253,7 +257,7 @@ export interface ReverseunoApi {
   updateSettings(patch: DeepPartial<Settings>): Promise<Settings>
   setSecret(name: SecretName, value: string): Promise<SecretStatus[]>
   clearSecret(name: SecretName): Promise<SecretStatus[]>
-  testProvider(name: 'deepgram' | 'openrouter'): Promise<ProviderTestResult>
+  testProvider(name: SecretName): Promise<ProviderTestResult>
   listDevices(): Promise<AudioDevice[]>
   listModels(kind: ModelKind): Promise<ModelOption[]>
   historyUpdate(id: string, text: string): Promise<{ entry: DictationEntry; suggestions: Suggestion[] }>

@@ -480,7 +480,7 @@ export class DictationEngine {
       this.deps.store.updateSnippet(used.id, { uses: used.uses + 1 })
     } else if (needsFormatting(raw, settings)) {
       this.setState({ state: 'formatting', message: 'Polishing', interim: raw })
-      const key = this.deps.secrets.get('openrouter')
+      const key = this.deps.secrets.get(settings.format.provider === 'anthropic' ? 'anthropic' : 'openrouter')
       const result = await formatTranscript(raw, settings, key, {
         dictionary: preferredSpellings(this.deps.store.dictionary, 80),
         appClass: session.appClass,

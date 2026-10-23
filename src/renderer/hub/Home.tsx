@@ -111,6 +111,7 @@ function SetupChecklist({ data, navigate }: { data: Bootstrap; navigate: (page: 
   const hasKey = (name: string) => data.secrets.some((secret) => secret.name === name && secret.present)
   const sttName = data.settings.stt.provider === 'openrouter' ? 'openrouter' : 'deepgram'
   const needsFormatKey = data.settings.format.enabled && data.settings.format.cleanup !== 'none'
+  const formatName = data.settings.format.provider
   const items = [
     {
       done: hasKey(sttName),
@@ -118,11 +119,11 @@ function SetupChecklist({ data, navigate }: { data: Bootstrap; navigate: (page: 
       detail: 'Speech-to-text needs it. Without it, holding the key shows an error.',
       action: 'Open Providers'
     },
-    ...(needsFormatKey && sttName !== 'openrouter'
+    ...(needsFormatKey && (formatName === 'anthropic' || sttName !== 'openrouter')
       ? [
           {
-            done: hasKey('openrouter'),
-            title: 'Add your OpenRouter key',
+            done: hasKey(formatName),
+            title: `Add your ${formatName === 'anthropic' ? 'Anthropic' : 'OpenRouter'} key`,
             detail: 'Used to polish the transcript. Without it, you get the raw transcript.',
             action: 'Open Providers'
           }

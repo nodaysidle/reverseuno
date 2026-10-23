@@ -34,7 +34,7 @@ import { initLogger, getLogPath, log } from './logger'
 import { ControlServer } from './control'
 import { copyToClipboard, notify, placeOwnWindow } from './paste'
 import { validateDeepgramKey } from './stt/deepgram'
-import { validateOpenRouterKey } from './format'
+import { validateAnthropicKey, validateOpenRouterKey } from './format'
 import { seedDemo } from './demo'
 import { listOpenRouterModels } from './models'
 import { readOmarchyTheme, watchOmarchyTheme } from './theme'
@@ -448,8 +448,12 @@ function registerIpc(): void {
     return secrets.allStatuses()
   })
 
-  ipcMain.handle('provider:test', async (_, name: 'deepgram' | 'openrouter'): Promise<ProviderTestResult> => {
+  ipcMain.handle('provider:test', async (_, name: SecretName): Promise<ProviderTestResult> => {
     const started = Date.now()
+    if (name === 'anthropic') {
+      const result = await validateAnthropicKey(secrets.get('anthropic'))
+      return { ...result, latencyMs: Date.now() - started }
+    }
     if (name === 'deepgram') {
       const result = await validateDeepgramKey(secrets.get('deepgram'))
       return { ...result, latencyMs: Date.now() - started }

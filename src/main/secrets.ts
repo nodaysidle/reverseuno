@@ -5,12 +5,14 @@ import type { SecretName, SecretStatus } from '@shared/types'
 
 const ENV_KEYS: Record<SecretName, string[]> = {
   deepgram: ['DEEPGRAM_API_KEY'],
-  openrouter: ['OPENROUTER_API_KEY']
+  openrouter: ['OPENROUTER_API_KEY'],
+  anthropic: ['ANTHROPIC_API_KEY']
 }
 
 const WHISPERBAR_KEYS: Record<SecretName, string> = {
   deepgram: 'DEEPGRAM_API_KEY',
-  openrouter: 'OPENROUTER_API_KEY'
+  openrouter: 'OPENROUTER_API_KEY',
+  anthropic: 'ANTHROPIC_API_KEY'
 }
 
 interface StoredSecrets {

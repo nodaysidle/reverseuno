@@ -76,6 +76,7 @@ export const DEFAULT_SETTINGS: Settings = {
     enabled: true,
     provider: 'openrouter',
     model: 'google/gemini-2.5-flash',
+    anthropicModel: 'claude-haiku-5-5',
     baseUrl: 'https://openrouter.ai/api/v1',
     cleanup: 'light',
     style: 'casual',
