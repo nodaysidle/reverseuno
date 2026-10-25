@@ -16,8 +16,6 @@ enum class Secret(val prefKey: String, val label: String) {
 /** API keys live only here: EncryptedSharedPreferences backed by an Android Keystore master key. */
 object KeyVault {
     private const val FILE = "reverseuno_keys"
-    /** Dropped by scripts/push-keys-to-phone.sh via `adb shell run-as`; imported once, then deleted. */
-    private const val IMPORT_FILE = "import-keys.json"
 
     @Volatile private var prefs: SharedPreferences? = null
 
@@ -26,20 +24,6 @@ object KeyVault {
 
     fun set(context: Context, secret: Secret, value: String) {
         open(context).edit().putString(secret.prefKey, value.trim()).apply()
-    }
-
-    /** One-time import of the desktop keys: a JSON object of Secret name -> key, never left on disk. */
-    fun importPending(context: Context): Int {
-        val file = java.io.File(context.filesDir, IMPORT_FILE)
-        if (!file.exists()) return 0
-        val imported = runCatching {
-            val json = org.json.JSONObject(file.readText())
-            Secret.entries.count { secret ->
-                json.optString(secret.name).trim().takeIf { it.isNotEmpty() }?.let { set(context, secret, it) } != null
-            }
-        }.getOrDefault(0)
-        file.delete()
-        return imported
     }
 
     private fun open(context: Context): SharedPreferences = prefs ?: synchronized(this) {

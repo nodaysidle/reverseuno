@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -18,6 +20,18 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // The release key lives outside the repo; without it the release APK is built unsigned.
+    val signing = file(System.getenv("REVERSEUNO_SIGNING") ?: "${System.getProperty("user.home")}/.config/reverseuno/android-signing.properties")
+        .takeIf { it.exists() }
+        ?.let { f -> Properties().apply { f.inputStream().use(::load) } }
+    signingConfigs {
+        if (signing != null) create("release") {
+            storeFile = file(signing.getProperty("storeFile"))
+            storePassword = signing.getProperty("storePassword")
+            keyAlias = signing.getProperty("keyAlias")
+            keyPassword = signing.getProperty("keyPassword")
+        }
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -28,7 +42,9 @@ android {
     packaging { resources { excludes += listOf("/META-INF/{AL2.0,LGPL2.1,INDEX.LIST,DEPENDENCIES}", "/META-INF/native-image/**") } }
 
     buildTypes {
+        debug { applicationIdSuffix = ".debug" }
         release {
+            signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")

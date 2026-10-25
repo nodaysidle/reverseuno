@@ -20,7 +20,6 @@ import com.nodaysidle.reverseuno.core.Store
 import com.nodaysidle.reverseuno.dictation.Pipeline
 import com.nodaysidle.reverseuno.dictation.Target
 import com.nodaysidle.reverseuno.dictation.Transcript
-import com.nodaysidle.reverseuno.security.KeyVault
 import com.nodaysidle.reverseuno.stt.DictationAudioRecorder
 import com.nodaysidle.reverseuno.ui.BubbleState
 import kotlinx.coroutines.CancellationException
@@ -55,7 +54,6 @@ class VoiceAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         activeService = this
         Store.init(this)
-        KeyVault.importPending(this)
         recorder = DictationAudioRecorder(this)
         pipeline = Pipeline(this)
         runCatching {

@@ -2,22 +2,26 @@
 """Copy the desktop API keys into the reverseuno Android app, once.
 
 Keys are resolved the way src/main/secrets.ts does (app store, then environment,
-then the WhisperBar env file) and streamed over adb straight into the app's
-private files dir with `run-as`, so they never touch the phone's shared storage
-or a temp file here. The app moves them into its Keystore-backed vault on the
-next launch and deletes the file. Needs the debug build (run-as only works on
-debuggable apps).
+then the WhisperBar env file) and sent to the app's KeyImportReceiver with
+`am broadcast`. That receiver only accepts the adb shell. The command goes over
+adb's stdin, so the keys never show up in this machine's process list and never
+touch the phone's storage. Works for release and debug builds (pass --debug for
+the .debug package).
 """
 from __future__ import annotations
 
 import base64
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 PACKAGE = "com.nodaysidle.reverseuno"
+RECEIVER = "com.nodaysidle.reverseuno.security.KeyImportReceiver"
+# API keys are plain tokens; anything else would need shell quoting, so it is refused.
+KEY_SHAPE = re.compile(r"^[A-Za-z0-9_\-.]+$")
 HOME = Path.home()
 APP_SECRETS = HOME / ".config/reverseuno/secrets.json"
 WHISPERBAR = HOME / ".config/whisper-bar/config.env"
@@ -64,15 +68,23 @@ def main() -> int:
         print("No keys found; nothing to copy.", file=sys.stderr)
         return 1
 
+    bad = [secret for secret, value in keys.items() if not KEY_SHAPE.match(value)]
+    if bad:
+        print(f"Unexpected characters in: {', '.join(bad)}", file=sys.stderr)
+        return 1
+
+    package = PACKAGE + (".debug" if "--debug" in sys.argv[1:] else "")
+    extras = " ".join(f"--es {secret} {value}" for secret, value in keys.items())
     result = subprocess.run(
-        ["adb", "shell", f"run-as {PACKAGE} sh -c 'mkdir -p files && cat > files/import-keys.json'"],
-        input=json.dumps(keys).encode(),
+        ["adb", "shell"],
+        input=f"am broadcast -n {package}/{RECEIVER} {extras}\n".encode(),
         capture_output=True,
     )
-    if result.returncode != 0 or result.stderr.strip():
-        print(f"adb failed: {result.stderr.decode().strip()}", file=sys.stderr)
+    output = result.stdout.decode()
+    if result.returncode != 0 or f"imported {len(keys)}" not in output:
+        print(f"adb failed: {(result.stderr.decode() or output).strip()[-300:]}", file=sys.stderr)
         return 1
-    print(f"Copied {len(keys)} key(s). Open (or switch back to) reverseuno on the phone to import them.")
+    print(f"Imported {len(keys)} key(s) into {package}.")
     return 0
 
 

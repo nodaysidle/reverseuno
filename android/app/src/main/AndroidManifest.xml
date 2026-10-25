@@ -28,6 +28,12 @@
             </intent-filter>
         </activity>
 
+        <!-- adb-only: DUMP is held by the shell and the system, never by other apps. -->
+        <receiver
+            android:name=".security.KeyImportReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
+
         <receiver
             android:name=".service.ClipboardDismissReceiver"
             android:exported="false" />

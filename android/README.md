@@ -29,9 +29,18 @@ Needs JDK 17 and an Android SDK with platform 36 (`local.properties` → `sdk.di
 
 ```sh
 cd android
-./gradlew :app:testDebugUnitTest :app:assembleDebug
-adb install -r -g app/build/outputs/apk/debug/app-debug.apk
+./gradlew :app:testDebugUnitTest :app:assembleRelease
+adb install -r -g app/build/outputs/apk/release/app-release.apk
 ```
+
+The release build is R8-minified (about 31 MB) and signed with the key in
+`~/.config/reverseuno/android-signing.properties`. Point `REVERSEUNO_SIGNING` at another
+properties file (`storeFile`, `storePassword`, `keyAlias`, `keyPassword`) to sign with a
+different key. Without one, the release APK is built unsigned. Keep that keystore backed
+up: an installed release only accepts updates signed with the same key.
+
+`assembleDebug` builds `com.nodaysidle.reverseuno.debug`, which installs next to the
+release.
 
 Then, on the phone:
 
@@ -53,9 +62,9 @@ python3 scripts/push-keys-to-phone.py   # from the repo root, phone on adb
 ```
 
 It reads the keys the way the desktop app does (its own store, then the environment,
-then the WhisperBar env file). It streams them over adb straight into the app's
-private storage, and the app moves them into the Keystore vault when it next comes
-to the foreground. Debug builds only, because it uses `run-as`.
+then the WhisperBar env file). It hands them to the app with `am broadcast`, through a
+receiver guarded by `android.permission.DUMP`, which only the adb shell and the system
+hold. Add `--debug` to target the debug build.
 
 Logcat shows one line per dictation, with timings and sizes only. Transcripts are
 never logged:
