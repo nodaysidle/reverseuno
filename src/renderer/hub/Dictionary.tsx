@@ -1,7 +1,7 @@
 import { useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { ArrowRight, BookOpen, Check, Code2, Pencil, Plus, Search, Star, Trash2, X } from 'lucide-react'
 import type { Bootstrap, DictionaryEntry } from '@shared/types'
-import { cx, formatNumber } from './lib'
+import { cx, formatNumber, plural } from './lib'
 import { EmptyState } from './components'
 
 export function DictionaryPage({
@@ -55,7 +55,7 @@ export function DictionaryPage({
     try {
       const added = await window.api.dictionaryAddPack()
       await refresh()
-      toast(added ? `Added ${added} developer words` : 'Developer words are already in your dictionary', 'success')
+      toast(added ? `Added ${added} developer ${plural(added, 'word')}` : 'Developer words are already in your dictionary', 'success')
     } catch (error) {
       toast(`Could not add the developer words: ${error instanceof Error ? error.message : String(error)}`, 'error')
     } finally {
@@ -121,7 +121,7 @@ export function DictionaryPage({
         <div className="head-stats">
           <div>
             <span className="head-stat-value">{formatNumber(data.dictionary.length)}</span>
-            <span className="head-stat-label">words</span>
+            <span className="head-stat-label">{plural(data.dictionary.length, 'word')}</span>
           </div>
           <div>
             <span className="head-stat-value">{formatNumber(starred)}</span>

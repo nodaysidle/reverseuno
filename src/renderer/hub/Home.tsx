@@ -31,6 +31,7 @@ import {
   formatTime,
   greeting,
   groupHistory,
+  plural,
   todayEyebrow,
   type Page
 } from './lib'
@@ -363,7 +364,7 @@ export function Home({
           ) : null}
         </div>
         <span className="search-hint">
-          {data.history.length} {data.history.length === 1 ? 'dictation' : 'dictations'} stored locally
+          {data.history.length} {plural(data.history.length, 'dictation')} stored locally
         </span>
       </div>
 
@@ -371,7 +372,7 @@ export function Home({
         <StatCard
           label="Words dictated"
           value={formatNumber(stats.totalWords)}
-          hint={`${formatNumber(stats.totalDictations)} dictations`}
+          hint={`${formatNumber(stats.totalDictations)} ${plural(stats.totalDictations, 'dictation')}`}
           icon={<Type size={15} />}
           values={series.words}
         />
@@ -406,7 +407,7 @@ export function Home({
             <div>
               <div className="eyebrow">This week</div>
               <div className="week-total">
-                {formatNumber(weekTotal)} <span>words</span>
+                {formatNumber(weekTotal)} <span>{plural(weekTotal, 'word')}</span>
               </div>
             </div>
             <span className="pill pill-lavender">
@@ -420,7 +421,7 @@ export function Home({
               const label = new Intl.DateTimeFormat(undefined, { weekday: 'narrow' }).format(date)
               const max = Math.max(1, ...weekly.map((item) => item.words))
               return (
-                <div className="week-bar-wrap" key={day.key} title={`${day.words} words`}>
+                <div className="week-bar-wrap" key={day.key} title={`${day.words} ${plural(day.words, 'word')}`}>
                   <div className="week-bar-track">
                     <div
                       className={cx('week-bar', day.words > 0 && 'has-value')}
@@ -438,7 +439,7 @@ export function Home({
           <div className="eyebrow">Your rhythm</div>
           <p className="rhythm-line">
             {stats.totalWords > 0
-              ? `${formatNumber(stats.totalWords)} words across ${formatNumber(stats.totalDictations)} dictations.`
+              ? `${formatNumber(stats.totalWords)} ${plural(stats.totalWords, 'word')} across ${formatNumber(stats.totalDictations)} ${plural(stats.totalDictations, 'dictation')}.`
               : 'Your first sentence is one hold away.'}
           </p>
           <div className="rhythm-stats">
@@ -452,7 +453,7 @@ export function Home({
             </div>
             <div>
               <span className="rhythm-value">{Object.keys(stats.apps).length}</span>
-              <span className="rhythm-label">apps</span>
+              <span className="rhythm-label">{plural(Object.keys(stats.apps).length, 'app')}</span>
             </div>
           </div>
           <button type="button" className="rhythm-link" onClick={() => navigate('style')}>

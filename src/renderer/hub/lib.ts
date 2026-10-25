@@ -71,6 +71,10 @@ export function formatNumber(value: number): string {
   return new Intl.NumberFormat().format(value)
 }
 
+export function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
+  return count === 1 ? singular : pluralForm
+}
+
 export function formatDuration(ms: number): string {
   if (!ms || ms < 0) return '0s'
   const seconds = Math.round(ms / 1000)
