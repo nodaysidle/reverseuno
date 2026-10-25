@@ -24,7 +24,7 @@ import type {
   SttProvider
 } from '@shared/types'
 import { DEEPGRAM_MODELS, LANGUAGE_OPTIONS } from '@shared/defaults'
-import { copyText, cx, formatNumber } from './lib'
+import { copyText, cx, formatNumber, plural } from './lib'
 import { Segmented, SettingRow, Section, Toggle } from './components'
 
 const SOURCE_LABEL: Record<SecretStatus['source'], string> = {
@@ -412,7 +412,7 @@ o.bind("SUPER + Delete", "reverseuno cancel", "${cli} cancel")`
           </p>
         </div>
         <span className="pill pill-green">
-          <span className="status-dot is-on" /> {formatNumber(data.stats.totalWords)} words
+          <span className="status-dot is-on" /> {formatNumber(data.stats.totalWords)} {plural(data.stats.totalWords, 'word')}
         </span>
       </header>
 

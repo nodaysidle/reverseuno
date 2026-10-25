@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Check, Copy, Pencil, Plus, Quote, Sparkles, Trash2, X } from 'lucide-react'
 import type { Bootstrap, Snippet } from '@shared/types'
-import { copyText, cx, formatDate, truncate } from './lib'
+import { copyText, cx, formatDate, plural, truncate } from './lib'
 import { EmptyState } from './components'
 
 export function SnippetsPage({
@@ -70,13 +70,15 @@ export function SnippetsPage({
         <div className="head-stats">
           <div>
             <span className="head-stat-value">{data.snippets.length}</span>
-            <span className="head-stat-label">snippets</span>
+            <span className="head-stat-label">{plural(data.snippets.length, 'snippet')}</span>
           </div>
           <div>
             <span className="head-stat-value">
               {data.snippets.reduce((sum, snippet) => sum + snippet.uses, 0)}
             </span>
-            <span className="head-stat-label">uses</span>
+            <span className="head-stat-label">
+              {plural(data.snippets.reduce((sum, snippet) => sum + snippet.uses, 0), 'use')}
+            </span>
           </div>
         </div>
       </header>
