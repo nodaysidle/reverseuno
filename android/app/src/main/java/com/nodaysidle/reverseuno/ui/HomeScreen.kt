@@ -353,7 +353,7 @@ private fun StatGrid(stats: Stats, series: WeeklySeries) {
     val saved = timeSavedMinutes(stats)
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            StatCard("Words dictated", number(stats.totalWords), "${number(stats.totalDictations)} dictations", Lucide.Type, series.words, Modifier.weight(1f))
+            StatCard("Words dictated", number(stats.totalWords), "${number(stats.totalDictations)} ${if (stats.totalDictations == 1) "dictation" else "dictations"}", Lucide.Type, series.words, Modifier.weight(1f))
             StatCard("Day streak", "$streak", if (streak == 1) "one day, keep going" else "days in a row", Lucide.Flame, series.active, Modifier.weight(1f), Tokens.accent.copy(alpha = 0.10f))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -440,7 +440,7 @@ private fun RhythmCard(stats: Stats, onTune: () -> Unit) {
         Eyebrow("Your rhythm", color = Tokens.cream.copy(alpha = 0.6f))
         Spacer(Modifier.height(8.dp))
         Text(
-            if (stats.totalWords > 0) "${number(stats.totalWords)} words across ${number(stats.totalDictations)} dictations." else "Your first sentence is one tap away.",
+            if (stats.totalWords > 0) "${number(stats.totalWords)} words across ${number(stats.totalDictations)} ${if (stats.totalDictations == 1) "dictation" else "dictations"}." else "Your first sentence is one tap away.",
             style = Type.sectionTitle.copy(fontSize = 24.sp, lineHeight = 26.sp), color = Tokens.cream,
         )
         Spacer(Modifier.height(16.dp))
