@@ -27,7 +27,7 @@ Keyboard (Right Cmd is `Super_R`). Cloud speech-to-text, cloud formatting, every
 else local.
 
 There is also a native Android version with a floating bubble above the keyboard: see
-[android/README.md](android/README.md).
+[Android](#android).
 
 ## The journey
 
@@ -143,6 +143,43 @@ The release is bound twice because Hyprland can still count Super as held while
 
 Then add your keys in Settings → Providers, hold **Right Super**, speak, and release.
 For development with hot reload: `npm run dev`.
+
+## Android
+
+A native Android app (Kotlin + Jetpack Compose, Android 12+) with the same hub. A
+floating bubble appears just above the keyboard in any text field: tap to start, tap to
+stop, or hold to talk. The text is inserted where you are typing. The bubble stays out
+of password, number and phone fields.
+
+<p>
+  <img src="docs/screenshots/android-bubble.png" width="240" alt="Android dictation bubble">
+  <img src="docs/screenshots/android-home.png" width="240" alt="Android hub home">
+  <img src="docs/screenshots/android-style.png" width="240" alt="Android style settings">
+</p>
+
+**Download:** `reverseuno-android-0.1.0.apk` from the
+[android-v0.1.0 release](https://github.com/nodaysidle/reverseuno/releases/tag/android-v0.1.0).
+It is a sideload install; the app is not on the Play Store.
+
+1. Optionally verify the download against the `.sha256` file from the same release:
+   ```bash
+   sha256sum -c reverseuno-android-0.1.0.apk.sha256
+   ```
+   The expected SHA-256 is
+   `ece6e7e97a994002be78b8606fd93e9dbf7a98dea01270819a9d8078b466f424`.
+2. Open the APK on the phone. When Android asks, allow installs from unknown sources
+   for your browser or file manager.
+3. Turn on **reverseuno dictation bubble** in Settings → Accessibility (the Home screen
+   links there) and allow the microphone.
+4. Add your own keys in reverseuno → Settings → Providers: OpenRouter (required),
+   Anthropic (cleanup), DeepSeek (optional fallback). No keys ship with the app.
+5. On Xiaomi/MIUI, allow Autostart and set Battery to "No restrictions"
+   (Settings → Phone setup).
+
+Audio goes to OpenRouter and text to Anthropic (DeepSeek on fallback). Audio is
+recorded to the app's private cache and deleted after transcription; keys are kept in
+the Android Keystore-backed vault. Building from source, signing and logs:
+[android/README.md](android/README.md).
 
 ## Shortcuts
 
