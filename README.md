@@ -26,6 +26,9 @@ Linux only: an Electron app shaped around Omarchy, Hyprland and an Apple Magic
 Keyboard (Right Cmd is `Super_R`). Cloud speech-to-text, cloud formatting, everything
 else local.
 
+There is also a native Android version with a floating bubble above the keyboard: see
+[android/README.md](android/README.md).
+
 ## The journey
 
 One loop:

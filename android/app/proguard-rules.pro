@@ -1,0 +1,5 @@
+-keep public class com.nodaysidle.reverseuno.MainActivity { *; }
+-keep public class com.nodaysidle.reverseuno.service.VoiceAccessibilityService { *; }
+-keep public class com.nodaysidle.reverseuno.service.ClipboardDismissReceiver { *; }
+-dontwarn okhttp3.**
+-dontwarn okio.**
