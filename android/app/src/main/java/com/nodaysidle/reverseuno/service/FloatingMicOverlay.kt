@@ -89,8 +89,9 @@ class FloatingMicOverlay(
         clipChildren = false
         setViewTreeLifecycleOwner(owner)
         setViewTreeSavedStateRegistryOwner(owner)
+        val view = ComposeView(context)
         addView(
-            ComposeView(context).apply {
+            view.apply {
                 setContent {
                     val restingAlpha = if (state == BubbleState.IDLE) IDLE_ALPHA else 1f
                     val alpha by animateFloatAsState(

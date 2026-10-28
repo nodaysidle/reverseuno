@@ -1,16 +1,10 @@
 package com.nodaysidle.reverseuno.ui
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -57,24 +51,20 @@ private val PillShape = RoundedCornerShape(26.dp)
 /** The floating dictation pill: mic at rest, live waveform while recording, check when inserted. */
 @Composable
 fun DictationBubble(state: BubbleState, levels: List<Float>, message: String, modifier: Modifier = Modifier) {
+    // The overlay window is WRAP_CONTENT; keep the shadow inside padding so it is never clipped.
     Box(
         modifier
+            .padding(10.dp)
             .height(48.dp)
             .defaultMinSize(minWidth = 48.dp)
-            .shadow(16.dp, PillShape, ambientColor = Color.Black.copy(alpha = 0.35f), spotColor = Color.Black.copy(alpha = 0.45f))
+            .shadow(14.dp, PillShape, ambientColor = Color.Black.copy(alpha = 0.30f), spotColor = Color.Black.copy(alpha = 0.40f))
             .background(Glass, PillShape)
-            .border(1.dp, Rim, PillShape)
-            .animateContentSize(
-                spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow),
-            ),
+            .border(1.dp, Rim, PillShape),
         contentAlignment = Alignment.Center,
     ) {
-        AnimatedContent(
+        Crossfade(
             targetState = state,
-            transitionSpec = {
-                (fadeIn(tween(140)) + scaleIn(tween(160), initialScale = 0.92f)) togetherWith
-                    (fadeOut(tween(100)) + scaleOut(tween(120), targetScale = 0.92f))
-            },
+            animationSpec = tween(120),
             label = "bubble",
         ) { target ->
             when (target) {
@@ -116,7 +106,7 @@ fun DictationBubble(state: BubbleState, levels: List<Float>, message: String, mo
                 )
                 BubbleState.COPIED, BubbleState.ERROR, BubbleState.SETUP -> Text(
                     message,
-                    Modifier.padding(horizontal = 18.dp),
+                    Modifier.padding(horizontal = 18.dp).widthIn(max = 240.dp),
                     color = if (target == BubbleState.ERROR) Alert else Foreground,
                     fontSize = 13.5.sp,
                     fontWeight = FontWeight(450),
