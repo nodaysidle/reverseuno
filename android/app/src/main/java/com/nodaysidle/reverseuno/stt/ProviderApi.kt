@@ -36,7 +36,21 @@ object ProviderApi {
     suspend fun checkKey(secret: Secret, key: String): Boolean = when (secret) {
         Secret.ANTHROPIC -> AnthropicCleaner(key).checkKey()
         Secret.OPENROUTER -> bearerCheck("https://openrouter.ai/api/v1/key", key)
+        Secret.DEEPGRAM -> tokenCheck("https://api.deepgram.com/v1/auth/token", key)
+        Secret.XAI -> bearerCheck("https://api.x.ai/v1/models", key)
         Secret.DEEPSEEK -> bearerCheck("https://api.deepseek.com/models", key)
+    }
+
+    /** Deepgram uses `Authorization: Token`, not Bearer. */
+    private suspend fun tokenCheck(url: String, key: String): Boolean = withContext(Dispatchers.IO) {
+        val request = Request.Builder().url(url).header("Authorization", "Token $key").get().build()
+        http.newCall(request).execute().use { response ->
+            when {
+                response.isSuccessful -> true
+                response.code == 401 || response.code == 403 -> false
+                else -> throw IllegalStateException("HTTP ${response.code}")
+            }
+        }
     }
 
     private suspend fun bearerCheck(url: String, key: String): Boolean = withContext(Dispatchers.IO) {

@@ -353,3 +353,95 @@ Accessibility:
 - Clipboard is restored only if unchanged.
 - Editing a history entry creates a dictionary suggestion (or auto-learns it).
 - Keys are never logged or sent to the renderer.
+
+## 12. Android parity (reverseuno 0.1.x)
+
+The Android build keeps the desktop's pipeline but replaces the Electron capture path
+with native audio. Provider ids are `deepgram` (default), `xai`, and `openrouter`.
+
+### Capture
+
+- `AudioRecord` with `VOICE_RECOGNITION`, PCM16, mono, 16 kHz, min buffer ≥ 16 kB.
+- Frames are 8,000 bytes = 250 ms (`PCM_CHUNK_BYTES`), matching Wispr Flow's batching
+  window; the same frames feed the streamer and the WAV writer.
+- A 44-byte RIFF/WAVE header is written up front and rewritten with the final payload
+  size on stop. The WAV file is the fallback input and never leaves the device unless a
+  one-shot request is made.
+- Peak amplitude per frame drives the overlay waveform; no separate audio thread per bar.
+- A recording auto-stops at 300,000 ms.
+
+### Streaming
+
+- Deepgram: `wss://api.deepgram.com/v1/listen`, `model=nova-3` (configurable),
+  `encoding=linear16`, `sample_rate=16000`, `channels=1`, `interim_results=true`,
+  `smart_format=true`, `punctuate=true`, `endpointing=300`, `utterance_end_ms=1000`.
+  `language` is sent only for a two-letter code, otherwise `detect_language=true`.
+  Dictionary words are sent as repeated `keyterm` parameters (≤50, ≤600 chars total in
+  the one-shot prompt).
+- xAI: `wss://api.x.ai/v1/stt`, `model=grok-voice-transcribe-2.0`,
+  `encoding=pcm`, `sample_rate=16000`, `interim_results=true`, `endpointing=400`,
+  `format=true`, repeated `keyterm`. Audio is queued until `transcript.created`.
+- Interim text is shown in the bubble only while `RECORDING`; it never overwrites a final
+  or error message.
+- Frames recorded before the socket opens are queued (max 20 frames = 5 s) and flushed.
+- Stop sends Deepgram `CloseStream` or xAI `finalize` + `audio.done`; the final transcript
+  is awaited for at most 8 s, then any accumulated final text is used.
+- A stream failure, a missing selected-provider key, or `stt.streaming=false` falls back
+  to the one-shot OpenRouter request with the WAV file.
+
+### One-shot fallback
+
+- `POST https://openrouter.ai/api/v1/audio/transcriptions`, JSON with base64 audio
+  (`input_audio.data`) and the file extension as the format.
+- A 400 response with a `prompt` retries once without the prompt.
+- 408/425/429 and 5xx retry at most twice with 300/600 ms backoff, or `Retry-After`
+  capped at 3 s. 4xx auth/validation failures are surfaced immediately.
+- Timeouts: connect 8 s, write 30 s, read 60 s, whole call 75 s.
+
+### Insertion and history
+
+- `ACTION_SET_TEXT` with the merged field text at the cached cursor, then
+  `ACTION_SET_SELECTION`; on failure clipboard + `ACTION_PASTE`, then the live focused
+  node; otherwise the text stays on the clipboard and a notification offers it.
+- History records `provider` (`deepgram` / `xai` / `openrouter`) and `model`, plus
+  `inserted`; `error="clipboard"` marks a session that could not be inserted.
+- Keys live only in `EncryptedSharedPreferences`; the adb-guarded import receiver accepts
+  `OPENROUTER`, `DEEPGRAM`, `XAI`, `ANTHROPIC`, `DEEPSEEK`.
+
+### Bubble visibility and host
+
+- `BubbleContextPolicy.evaluate` mirrors the reference policy: passwords, numeric/phone pads and
+  URI fields are excluded by default; a browser address bar and a `com.android.systemui`
+  notification reply override the exclusion. Passwords and numeric pads never receive text.
+- The bubble requires an IME window and a field in another app.
+- `BubbleService` is a `specialUse` foreground service that hosts the bubble as a
+  `TYPE_APPLICATION_OVERLAY` window, so it survives the accessibility service restarting.
+  The accessibility service only supplies field context and text insertion; if it is gone, a
+  tap opens the accessibility settings and insertion falls back to the clipboard.
+- `SYSTEM_ALERT_WINDOW` must be granted; the setup checklist and Settings show it as a step and
+  the host re-tries on resume/focus after the grant.
+
+### Acceptance checks (Android)
+
+1. `./gradlew :app:testDebugUnitTest` passes; `WavHeaderTest` proves a 44-byte,
+   16 kHz/mono/PCM16 header and an 8,000-byte 250 ms frame.
+2. With a Deepgram key and streaming on, holding the bubble shows interim words within
+   ~1 s and release inserts the final text.
+3. With streaming off (or no streaming key), release uploads the WAV and inserts the
+   one-shot result; history `provider=openrouter`.
+4. Killing the network mid-recording does not lose audio: the stop path falls back to the
+   WAV upload and either inserts or reports a provider error.
+5. A 500/429 response is retried twice with backoff, then surfaced as a bubble error.
+6. A 401 response is not retried.
+7. A silent clip (<250 ms or zero frames) creates no history and shows “No speech heard”.
+8. Recording stops itself at 5 minutes and still transcribes the captured audio.
+9. Insertion into a password/number/phone field is refused by `isDictatableField`.
+10. With no editable field, the transcript lands on the clipboard and the history entry
+    records `inserted=false`, `error="clipboard"`.
+11. With overlay permission denied, no bubble window exists and the setup checklist shows
+    "Allow display over other apps".
+12. With permission granted, `dumpsys activity services` lists `BubbleService` as a foreground
+    service and the bubble appears in a normal editable field; it stays after the accessibility
+    service is toggled off and on.
+13. A browser address bar and a notification quick reply show the bubble; a password field,
+    number keypad and a URI field outside a browser do not.

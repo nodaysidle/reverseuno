@@ -1,6 +1,9 @@
 package com.nodaysidle.reverseuno.ui
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -10,12 +13,15 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -23,68 +29,99 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.nodaysidle.reverseuno.R
+import com.composables.icons.lucide.Check
+import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.Mic
 
 enum class BubbleState { IDLE, RECORDING, PROCESSING, SUCCESS, COPIED, ERROR, SETUP }
 
 const val WAVEFORM_BARS = 5
 
-internal val Ink = Color(0xFF050505)
-internal val Lime = Color(0xFFC8FF00)
-internal val Alert = Color(0xFFFF453A)
-private val Rim = Color(0x26FFFFFF)
-private val Silver = Brush.linearGradient(listOf(Color(0xFFF2F3F5), Color(0xFF9EA3AA), Color(0xFFD9DCE0), Color(0xFF7D838B)))
-private val SilverRim = Brush.linearGradient(listOf(Color(0x66E6E8EB), Color(0x1A8A9098), Color(0x55C4C8CD)))
+/** Floating pill colors stay monochrome and dark in both themes, like a system overlay. */
+private val Glass = Color(0xF20A0A0B)
+private val Rim = Color(0x24FFFFFF)
+private val Foreground = Color(0xFFF5F5F7)
+private val Alert = Color(0xFFFF6961)
+private val PillShape = RoundedCornerShape(26.dp)
 
-private val BubblePill = RoundedCornerShape(percent = 50)
-
-/** The dock bubble: a silver "N" at rest, a live waveform while recording, a spinner while processing, a tick when inserted. */
+/** The floating dictation pill: mic at rest, live waveform while recording, check when inserted. */
 @Composable
 fun DictationBubble(state: BubbleState, levels: List<Float>, message: String, modifier: Modifier = Modifier) {
     Box(
         modifier
-            .height(56.dp)
-            .defaultMinSize(minWidth = 56.dp)
-            .background(Ink, BubblePill)
-            .then(
-                if (state == BubbleState.RECORDING) Modifier.border(1.5.dp, Lime.copy(alpha = 0.6f), BubblePill)
-                else Modifier.border(1.5.dp, SilverRim, BubblePill)
+            .height(48.dp)
+            .defaultMinSize(minWidth = 48.dp)
+            .shadow(16.dp, PillShape, ambientColor = Color.Black.copy(alpha = 0.35f), spotColor = Color.Black.copy(alpha = 0.45f))
+            .background(Glass, PillShape)
+            .border(1.dp, Rim, PillShape)
+            .animateContentSize(
+                spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow),
             ),
         contentAlignment = Alignment.Center,
     ) {
         AnimatedContent(
             targetState = state,
             transitionSpec = {
-                (fadeIn(tween(120)) + scaleIn(tween(120), initialScale = 0.8f)) togetherWith
-                    (fadeOut(tween(100)) + scaleOut(tween(100), targetScale = 0.8f))
+                (fadeIn(tween(140)) + scaleIn(tween(160), initialScale = 0.92f)) togetherWith
+                    (fadeOut(tween(100)) + scaleOut(tween(120), targetScale = 0.92f))
             },
             label = "bubble",
         ) { target ->
             when (target) {
-                BubbleState.IDLE -> Text(
-                    "N",
-                    style = TextStyle(brush = Silver, fontSize = 28.sp, fontWeight = FontWeight.Bold),
+                BubbleState.IDLE -> Icon(
+                    Lucide.Mic,
+                    contentDescription = "Start dictation",
+                    modifier = Modifier.padding(14.dp).size(20.dp),
+                    tint = Foreground.copy(alpha = 0.92f),
                 )
-                BubbleState.RECORDING -> Waveform(levels, Modifier.width(28.dp).height(24.dp))
-                BubbleState.PROCESSING -> CircularProgressIndicator(Modifier.size(22.dp), color = Lime, strokeWidth = 2.dp, trackColor = Rim)
-                BubbleState.SUCCESS -> Icon(painterResource(R.drawable.ic_check), null, Modifier.size(26.dp), tint = Lime)
+                BubbleState.RECORDING -> Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.padding(horizontal = if (message.isBlank()) 14.dp else 18.dp),
+                ) {
+                    Waveform(levels, Modifier.width(26.dp).height(22.dp))
+                    if (message.isNotBlank()) {
+                        Text(
+                            message,
+                            Modifier.widthIn(max = 220.dp),
+                            color = Foreground.copy(alpha = 0.86f),
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight(450),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                BubbleState.PROCESSING -> CircularProgressIndicator(
+                    Modifier.size(18.dp),
+                    color = Foreground,
+                    strokeWidth = 2.dp,
+                    trackColor = Rim,
+                )
+                BubbleState.SUCCESS -> Icon(
+                    Lucide.Check,
+                    contentDescription = "Text inserted",
+                    modifier = Modifier.padding(14.dp).size(20.dp),
+                    tint = Foreground,
+                )
                 BubbleState.COPIED, BubbleState.ERROR, BubbleState.SETUP -> Text(
                     message,
-                    Modifier.padding(horizontal = 16.dp),
-                    color = if (target == BubbleState.ERROR) Alert else Color.White,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
+                    Modifier.padding(horizontal = 18.dp),
+                    color = if (target == BubbleState.ERROR) Alert else Foreground,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight(450),
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -100,7 +137,7 @@ private fun Waveform(levels: List<Float>, modifier: Modifier) {
             val level = levels.getOrElse(levels.size - WAVEFORM_BARS + i) { 0f }
             val barHeight = (size.height * level).coerceAtLeast(barWidth)
             drawRoundRect(
-                color = Lime,
+                color = Foreground,
                 topLeft = Offset(i * (barWidth + gap), (size.height - barHeight) / 2f),
                 size = Size(barWidth, barHeight),
                 cornerRadius = CornerRadius(barWidth / 2f),

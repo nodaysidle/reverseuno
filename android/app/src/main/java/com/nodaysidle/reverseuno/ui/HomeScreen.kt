@@ -48,6 +48,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -160,7 +161,12 @@ fun HomeScreen(data: StoreData, navigate: (Page) -> Unit) {
     }
     val micOn = remember(tick) { SystemSetup.hasMic(context) }
     val a11yOn = remember(tick) { SystemSetup.isAccessibilityOn(context) }
-    val keyOn = remember(tick) { KeyVault.get(context, Secret.OPENROUTER).isNotBlank() }
+    val overlayOn = remember(tick) { SystemSetup.hasOverlay(context) }
+    val keyOn = remember(tick) {
+        KeyVault.get(context, Secret.OPENROUTER).isNotBlank() ||
+            KeyVault.get(context, Secret.DEEPGRAM).isNotBlank() ||
+            KeyVault.get(context, Secret.XAI).isNotBlank()
+    }
     val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { tick++ }
     val askMic = { micLauncher.launch(Manifest.permission.RECORD_AUDIO) }
 
@@ -178,12 +184,18 @@ fun HomeScreen(data: StoreData, navigate: (Page) -> Unit) {
     LazyColumn(
         Modifier.fillMaxWidth(),
         contentPadding = PaddingValues(start = Gutter, end = Gutter, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        if (!micOn || !a11yOn || !keyOn) {
+        if (!micOn || !a11yOn || !overlayOn || !keyOn) {
             item("setup") {
                 Spacer(Modifier.height(4.dp))
-                SetupCard(micOn, a11yOn, keyOn, askMic, { SystemSetup.openAccessibility(context) }, { navigate(Page.SETTINGS) })
+                SetupCard(
+                    micOn, a11yOn, overlayOn, keyOn,
+                    askMic,
+                    { SystemSetup.openAccessibility(context) },
+                    { SystemSetup.openOverlay(context) },
+                    { navigate(Page.SETTINGS) },
+                )
             }
         }
         item("header") {
@@ -193,7 +205,7 @@ fun HomeScreen(data: StoreData, navigate: (Page) -> Unit) {
                 sub = "Tap the bubble in any text field, speak naturally, tap again. Reverseuno writes it right there.",
                 aside = {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        BubbleStatus(live = a11yOn && data.settings.bubble.enabled, a11yOn = a11yOn)
+                        BubbleStatus(live = a11yOn && overlayOn && data.settings.bubble.enabled, a11yOn = a11yOn, overlayOn = overlayOn)
                         DictationControls(micOn, askMic) { navigate(Page.SETTINGS) }
                     }
                 },
@@ -266,16 +278,26 @@ fun HomeScreen(data: StoreData, navigate: (Page) -> Unit) {
 }
 
 @Composable
-private fun SetupCard(micOn: Boolean, a11yOn: Boolean, keyOn: Boolean, askMic: () -> Unit, openA11y: () -> Unit, openSettings: () -> Unit) {
-    val done = listOf(micOn, a11yOn, keyOn).count { it }
+private fun SetupCard(
+    micOn: Boolean,
+    a11yOn: Boolean,
+    overlayOn: Boolean,
+    keyOn: Boolean,
+    askMic: () -> Unit,
+    openA11y: () -> Unit,
+    openOverlay: () -> Unit,
+    openSettings: () -> Unit,
+) {
+    val done = listOf(micOn, a11yOn, overlayOn, keyOn).count { it }
     Card(Modifier.fillMaxWidth()) {
         Eyebrow("Get set up")
         Spacer(Modifier.height(6.dp))
-        Text("$done of 3 done", style = Type.sectionTitle, color = Tokens.ink)
+        Text("$done of 4 done", style = Type.sectionTitle, color = Tokens.ink)
         Spacer(Modifier.height(6.dp))
         SetupItem(micOn, "Allow the microphone", "Reverseuno listens only while you dictate.", "Allow", askMic)
-        SetupItem(a11yOn, "Turn on the accessibility service", "It shows the bubble above the keyboard and types the text for you.", "Turn on", openA11y)
-        SetupItem(keyOn, "Add your OpenRouter key", "Speech-to-text needs it. Without it, dictating shows an error.", "Add key", openSettings)
+        SetupItem(a11yOn, "Turn on the accessibility service", "It sees the text field and types what you say.", "Turn on", openA11y)
+        SetupItem(overlayOn, "Allow display over other apps", "Keeps the bubble alive in other apps.", "Allow", openOverlay)
+        SetupItem(keyOn, "Add a transcription key", "Deepgram, xAI, or OpenRouter — any one works.", "Add key", openSettings)
     }
 }
 
@@ -293,7 +315,7 @@ private fun SetupItem(done: Boolean, title: String, detail: String, action: Stri
 
 /** The sidebar's "Ready" card as a status line. */
 @Composable
-private fun BubbleStatus(live: Boolean, a11yOn: Boolean) {
+private fun BubbleStatus(live: Boolean, a11yOn: Boolean, overlayOn: Boolean) {
     Row(
         Modifier.clip(Pill).background(Tokens.ink.copy(alpha = 0.05f)).padding(horizontal = 12.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -304,6 +326,7 @@ private fun BubbleStatus(live: Boolean, a11yOn: Boolean) {
             when {
                 live -> "Ready. The bubble is live in text fields."
                 !a11yOn -> "Bubble off. Turn on the accessibility service."
+                !overlayOn -> "Bubble off. Allow display over other apps."
                 else -> "Bubble hidden. Show it in Settings."
             },
             style = Type.small, color = Tokens.inkSoft,
@@ -351,12 +374,26 @@ private fun StatGrid(stats: Stats, series: WeeklySeries) {
     val streak = currentStreak(stats.days)
     val wpm = wordsPerMinute(stats)
     val saved = timeSavedMinutes(stats)
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            StatCard("Words dictated", number(stats.totalWords), "${number(stats.totalDictations)} ${if (stats.totalDictations == 1) "dictation" else "dictations"}", Lucide.Type, series.words, Modifier.weight(1f))
-            StatCard("Day streak", "$streak", if (streak == 1) "one day, keep going" else "days in a row", Lucide.Flame, series.active, Modifier.weight(1f), Tokens.accent.copy(alpha = 0.10f))
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // One hero metric; the supporting numbers sit below it at half weight.
+        Card(Modifier.fillMaxWidth(), background = Tokens.accent.copy(alpha = 0.08f), padding = PaddingValues(18.dp)) {
+            Row(verticalAlignment = Alignment.Top) {
+                Column(Modifier.weight(1f)) {
+                    Eyebrow("Words dictated")
+                    Spacer(Modifier.height(8.dp))
+                    Text(number(stats.totalWords), style = Type.statNumber.copy(fontSize = 48.sp), color = Tokens.ink, maxLines = 1)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "${number(stats.totalDictations)} ${if (stats.totalDictations == 1) "dictation" else "dictations"} · ${if (streak == 1) "1-day streak" else "$streak-day streak"}",
+                        style = Type.hint,
+                        color = Tokens.muted,
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Sparkline(series.words, height = 48.dp)
+            }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             StatCard("Time saved", if (saved < 1) "<1m" else "${number(saved)}m", "vs. typing at 40 wpm", Lucide.Clock3, series.saved, Modifier.weight(1f))
             StatCard("Speaking pace", if (wpm > 0) number(wpm) else "—", if (wpm > 0) "words per minute" else "dictate to measure", Lucide.Gauge, series.pace, Modifier.weight(1f), Tokens.lavender.copy(alpha = 0.12f))
         }
@@ -383,9 +420,9 @@ private fun StatCard(label: String, value: String, hint: String, icon: ImageVect
 }
 
 @Composable
-private fun Sparkline(values: List<Float>) {
+private fun Sparkline(values: List<Float>, height: Dp = 26.dp) {
     val max = maxOf(1f, values.maxOrNull() ?: 0f)
-    Row(Modifier.height(26.dp), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.Bottom) {
+    Row(Modifier.height(height), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.Bottom) {
         values.forEachIndexed { i, v ->
             Box(
                 Modifier.width(4.dp).fillMaxHeight(maxOf(0.08f, v / max)).clip(RoundedCornerShape(2.dp))
