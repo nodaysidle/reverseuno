@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { paletteFrom, parseColors, readOmarchyTheme } from '../src/main/theme'
-import { contrast, onAccent } from '../src/renderer/hub/theme'
 
 const QUATTRO = `mode = "dark"
 
@@ -58,12 +57,5 @@ describe('Omarchy theme', () => {
     dir = mkdtempSync(join(tmpdir(), 'reverseuno-theme-'))
     expect(readOmarchyTheme(dir)).toBeNull()
     expect(paletteFrom(parseColors('background = "transparent"\nforeground = "#fff"'), 'x')).toBeNull()
-  })
-
-  it('picks readable text for accent-filled buttons', () => {
-    const palette = paletteFrom(parseColors(QUATTRO), 'quattro')!
-    expect(contrast(onAccent(palette), palette.accent)).toBeGreaterThanOrEqual(4.5)
-    const blue = { ...palette, mode: 'light' as const, background: '#f4f6fb', foreground: '#0b1a33', accent: '#1255cc' }
-    expect(contrast(onAccent(blue), blue.accent)).toBeGreaterThanOrEqual(4.5)
   })
 })

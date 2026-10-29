@@ -179,6 +179,8 @@ async function startApp() {
     env: {
       ...process.env,
       REVERSEUNO_USER_DATA: userData,
+      // Engine only: no Qt app on the live session.
+      REVERSEUNO_NO_UI: '1',
       REVERSEUNO_OZONE: process.env.REVERSEUNO_OZONE ?? 'wayland',
       REVERSEUNO_GPU: '0',
       REVERSEUNO_FAKE_AUDIO: wavFile,
