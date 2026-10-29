@@ -142,4 +142,21 @@ describe('Store', () => {
       expect(new Store(file).settings.format.timeoutMs).toBe(4500)
     })
   })
+
+  describe('keyterm limit migration', () => {
+    const seed = (version: number, keytermLimit: number) =>
+      writeFileSync(file, JSON.stringify({ version, settings: { stt: { keytermLimit } } }))
+
+    it('moves a v2 store off the old 50 keyterm default', () => {
+      seed(2, 50)
+      expect(new Store(file).settings.stt.keytermLimit).toBe(15)
+    })
+
+    it('keeps a limit the user chose, and leaves a v3 store alone', () => {
+      seed(2, 30)
+      expect(new Store(file).settings.stt.keytermLimit).toBe(30)
+      seed(3, 50)
+      expect(new Store(file).settings.stt.keytermLimit).toBe(50)
+    })
+  })
 })

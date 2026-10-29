@@ -75,7 +75,7 @@ export const DEFAULT_SETTINGS: Settings = {
     language: 'multi',
     smartFormat: true,
     punctuate: true,
-    keytermLimit: 50,
+    keytermLimit: 15,
     endpointingMs: 300,
     utteranceEndMs: 1000
   },
