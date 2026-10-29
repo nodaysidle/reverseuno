@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">reverseuno</string>
+    <string name="accessibility_service_label">reverseuno dictation bubble</string>
+    <string name="accessibility_service_description">Shows the reverseuno bubble above the keyboard in text fields and inserts your dictated text where you are typing. It stays hidden in password, number and phone fields. Audio is recorded only while the bubble is active.</string>
+</resources>
