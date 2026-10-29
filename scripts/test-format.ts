@@ -4,7 +4,7 @@ import { loadEnv, requireKey } from './env'
 
 async function main() {
   loadEnv()
-  const key = requireKey('OPENROUTER_API_KEY')
+  const key = requireKey(DEFAULT_SETTINGS.format.provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENROUTER_API_KEY')
 
   const samples = [
     'um so i think we should uh move the review to thursday at six and then like send the numbers before that',
