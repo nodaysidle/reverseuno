@@ -2,6 +2,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { writeFileSync } from 'node:fs'
 import { DEVELOPER_VOCABULARY } from '@shared/vocabulary'
+import { DEFAULT_SETTINGS } from '@shared/defaults'
 import type {
   Bootstrap,
   DeepPartial,
@@ -37,6 +38,23 @@ export interface ApiDeps {
   }) => Promise<string | null>
 }
 
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v)
+
+// Patch must mirror DEFAULT_SETTINGS: no unknown keys, same typeof/array-ness at every level.
+// shortcut: array items and string enums are not checked (typeof only); tighten if the HTTP surface needs it.
+function matchesShape(patch: unknown, shape: unknown): boolean {
+  if (isRecord(shape)) {
+    return (
+      isRecord(patch) &&
+      Object.entries(patch).every(
+        ([key, value]) => Object.hasOwn(shape, key) && (value === undefined || matchesShape(value, shape[key]))
+      )
+    )
+  }
+  return Array.isArray(shape) ? Array.isArray(patch) : typeof patch === typeof shape
+}
+
 // Method names are those of ReverseunoApi; Electron IPC and the control server share these bodies.
 export function buildApi(deps: ApiDeps): ApiTable {
   const { store, secrets, sendHub, setLogin } = deps
@@ -45,6 +63,7 @@ export function buildApi(deps: ApiDeps): ApiTable {
     bootstrap: () => deps.bootstrap(),
 
     updateSettings: (patch) => {
+      if (!matchesShape(patch, DEFAULT_SETTINGS)) throw new Error('invalid settings')
       const before = store.settings.system.launchAtLogin
       const settings = store.updateSettings(patch as DeepPartial<Settings>)
       if (settings.system.launchAtLogin !== before) setLogin(settings.system.launchAtLogin)

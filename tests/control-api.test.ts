@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { ControlServer, type ControlHandlers } from '../src/main/control'
 import { buildApi, redactSecrets } from '../src/main/api'
 import { Secrets } from '../src/main/secrets'
+import { DEFAULT_SETTINGS } from '../src/shared/defaults'
 
 vi.mock('electron', () => ({
   safeStorage: { isEncryptionAvailable: () => false },
@@ -122,5 +123,48 @@ describe('control api rpc', () => {
       expect(text, path).not.toContain('1234')
       expect(text, path).not.toContain('hint')
     }
+  })
+})
+
+describe('settings validation', () => {
+  const settings = structuredClone(DEFAULT_SETTINGS)
+  const fakeStore = {
+    settings,
+    updateSettings: (patch: { format?: { cleanup?: string } }) => {
+      if (patch.format?.cleanup) settings.format.cleanup = patch.format.cleanup as never
+      return settings
+    }
+  }
+  const api = buildApi({
+    store: fakeStore as never,
+    secrets,
+    engine: () => noStore,
+    bootstrap: () => ({}) as never,
+    sendHub: () => {},
+    setLogin: () => {},
+    requestDevices: async () => [],
+    quitApp: () => {},
+    openExternal: async () => {},
+    saveDialog: async () => null
+  })
+
+  it('settings patch with an unknown key is rejected and leaves settings unchanged', () => {
+    const before = structuredClone(settings)
+    for (const bad of [{ bogus: 1 }, { format: { bogus: 1 } }, { format: { cleanup: 'none', nope: true } }, { __proto__: { x: 1 }, constructor: {} }]) {
+      expect(() => api.updateSettings!(bad)).toThrow('invalid settings')
+    }
+    expect(settings).toEqual(before)
+  })
+
+  it('settings patch with a wrong type is rejected', () => {
+    for (const bad of [{ format: { enabled: 'yes' } }, { stt: { endpointingMs: '300' } }, { insert: { appRules: {} } }, { format: null }, { format: [] }, 'x', null]) {
+      expect(() => api.updateSettings!(bad)).toThrow('invalid settings')
+    }
+  })
+
+  it('a valid nested patch (format.cleanup: "light") is applied', () => {
+    settings.format.cleanup = 'none'
+    expect(api.updateSettings!({ format: { cleanup: 'light' } })).toMatchObject({ format: { cleanup: 'light' } })
+    expect(() => api.updateSettings!({ insert: { appRules: [{ pattern: 'x', keys: 'ctrl-v' }] }, stt: { language: 'en' } })).not.toThrow()
   })
 })
