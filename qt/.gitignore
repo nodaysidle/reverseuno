@@ -5,7 +5,8 @@ moc_*
 qrc_*
 .qmake.stash
 .qmake.cache
-reverseuno-ui
-tst_theme
-tst_engineclient
-tst_*.o
+/reverseuno-ui
+/tests/tst_*/tst_theme
+/tests/tst_*/tst_engineclient
+target_wrapper.sh
+*.moc
