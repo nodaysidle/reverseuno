@@ -37,6 +37,9 @@ check() {
 package() {
   cd "$pkgname"
   npm prune --omit=dev --no-audit --no-fund
+  # vite/vitest caches from build() and check(), and scope dirs prune emptied
+  rm -rf node_modules/.vite node_modules/.vitest-cache
+  find node_modules -type d -empty -delete
 
   # Same layout as a checkout, so the engine finds <app>/qt/reverseuno-ui and the
   # Qt app finds qml/ next to its binary.
