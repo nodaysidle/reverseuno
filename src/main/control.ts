@@ -127,9 +127,11 @@ export class ControlServer {
     res.end(json)
   }
 
-  publish(event: ApiEvent): void {
-    if (this.clients.size === 0) return
+  /** True when at least one stream client was there to receive it. */
+  publish(event: ApiEvent): boolean {
+    if (this.clients.size === 0) return false
     this.write(`data: ${JSON.stringify(event)}\n\n`)
+    return this.clients.size > 0
   }
 
   private write(chunk: string): void {

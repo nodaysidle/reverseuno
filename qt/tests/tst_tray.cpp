@@ -1,4 +1,6 @@
 #include <QtTest>
+#include <QProcess>
+#include <QTemporaryDir>
 
 #include "EngineClient.h"
 #include "HubController.h"
@@ -94,6 +96,44 @@ private slots:
         hub.setPage("dictionary");
         emit client.callFinished("bootstrap", QVariantMap(), QString());
         QCOMPARE(hub.page(), QString("dictionary"));
+    }
+    void secondInstanceExitsWithAlreadyRunning()
+    {
+        QTemporaryDir runtime; // its own XDG_RUNTIME_DIR: never the user's real lock
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert("XDG_RUNTIME_DIR", runtime.path());
+        env.insert("QT_QPA_PLATFORM", "offscreen");
+        env.insert("REVERSEUNO_CONTROL_FILE", runtime.filePath("control.json")); // no engine
+        env.insert("DBUS_SESSION_BUS_ADDRESS", "unix:path=" + runtime.filePath("no-bus"));
+        env.remove("WAYLAND_DISPLAY");
+        env.remove("QT_QPA_PLATFORMTHEME");
+
+        QProcess first, second;
+        for (QProcess *p : {&first, &second}) {
+            p->setProcessEnvironment(env);
+            p->setProcessChannelMode(QProcess::ForwardedErrorChannel);
+        }
+        first.start(UI_BIN);
+        QVERIFY(first.waitForStarted());
+        QTRY_VERIFY_WITH_TIMEOUT(!QDir(runtime.path()).entryList({"reverseuno-ui*.lock"}, QDir::Files).isEmpty(), 5000);
+
+        second.start(UI_BIN);
+        QVERIFY(second.waitForFinished(5000));
+        QCOMPARE(second.exitStatus(), QProcess::NormalExit);
+        QCOMPARE(second.exitCode(), 75);
+        QCOMPARE(first.state(), QProcess::Running);
+
+        // the lock goes with its owner: a later start takes over
+        first.kill();
+        QVERIFY(first.waitForFinished(5000));
+        QProcess third;
+        third.setProcessEnvironment(env);
+        third.start(UI_BIN);
+        QVERIFY(third.waitForStarted());
+        QTest::qWait(500);
+        QCOMPARE(third.state(), QProcess::Running);
+        third.kill();
+        third.waitForFinished(5000);
     }
 };
 

@@ -1,5 +1,9 @@
 #include <QCommandLineParser>
+#include <QCryptographicHash>
+#include <QDir>
 #include <QGuiApplication>
+#include <QLockFile>
+#include <QStandardPaths>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 
@@ -10,8 +14,31 @@
 #include "Tray.h"
 #include "Windows.h"
 
+// Same value as ALREADY_RUNNING_EXIT in src/main/supervisor.ts: the engine does not restart on it.
+static constexpr int kAlreadyRunningExit = 75;
+
+// One Qt app per engine, so an orphan left by a crashed engine and the new engine's child never
+// both draw a tray and an Overlay. Keyed on the control file: an isolated engine (e2e) gets its own.
+static QString lockPath()
+{
+    QString dir = qEnvironmentVariable("XDG_RUNTIME_DIR");
+    if (dir.isEmpty()) dir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+    const QString control = QDir::cleanPath(EngineClient::defaultControlFile());
+    QString name = "reverseuno-ui";
+    if (control != QDir::cleanPath(EngineClient::standardControlFile()))
+        name += "-" + QCryptographicHash::hash(control.toUtf8(), QCryptographicHash::Sha1).toHex().left(12);
+    return dir + "/" + name + ".lock";
+}
+
 int main(int argc, char *argv[])
 {
+    QLockFile lock(lockPath());
+    lock.setStaleLockTime(0); // never stale by age; a dead owner's lock is still taken over
+    if (!lock.tryLock()) {
+        qInfo().noquote() << "reverseuno-ui already running:" << lock.fileName();
+        return kAlreadyRunningExit;
+    }
+
     QGuiApplication app(argc, argv);
     app.setQuitOnLastWindowClosed(false); // closing the Hub only hides it
     Theme theme;

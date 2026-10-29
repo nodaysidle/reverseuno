@@ -16,6 +16,9 @@ export interface SupervisorDeps {
   log: (message: string) => void
 }
 
+/** qt/src/main.cpp exits with this when another Qt app already serves the same engine. */
+export const ALREADY_RUNNING_EXIT = 75
+
 const WINDOW_MS = 60_000
 const MAX_RESTARTS = 5
 const RESTART_DELAY_MS = 1000
@@ -80,16 +83,21 @@ export class Supervisor {
     this.child = child
     let done = false
     // A failed spawn can emit both 'error' and 'exit'; count it once.
-    const exited = (why: string) => {
+    const exited = (why: string, code?: number | null) => {
       if (done) return
       done = true
       if (this.child === child) this.child = null
       if (this.stopped) return
+      if (code === ALREADY_RUNNING_EXIT) {
+        // Not a crash: one is up already (e.g. left from an earlier engine). Nothing to restart.
+        this.deps.log('[ui] already running')
+        return
+      }
       this.deps.log(`[ui] exited (${why})`)
       this.onExit()
     }
     child.on('error', (error) => exited(String(error)))
-    child.on('exit', (code, signal) => exited(signal ?? `code ${code}`))
+    child.on('exit', (code, signal) => exited(signal ?? `code ${code}`, code))
   }
 
   private onExit(): void {
@@ -109,11 +117,37 @@ export class Supervisor {
   }
 }
 
-/** `show <page>` / tray / second instance: tell a running Hub, or start the Qt app on that page. */
-export function openHub(ui: Supervisor, publish: (event: ApiEvent) => void): (page?: string) => void {
+const REPLAY_MS = 10_000
+
+/** A page asked for while no stream client was there to hear it; the next connect snapshot carries it once. */
+export class PageReplay {
+  private pending: { page: string; at: number } | null = null
+  constructor(private readonly now: () => number = Date.now) {}
+
+  keep(page: string): void {
+    this.pending = { page, at: this.now() }
+  }
+
+  take(): ApiEvent[] {
+    const pending = this.pending
+    this.pending = null
+    return pending && this.now() - pending.at <= REPLAY_MS ? [{ type: 'page', page: pending.page }] : []
+  }
+}
+
+/**
+ * `show <page>` / tray / second instance: tell a running Hub, or start the Qt app on that page.
+ * `publish` returns whether a stream client got the event; if none did and the app is already
+ * starting (not connected yet), the page waits in `replay` for its connect snapshot.
+ */
+export function openHub(
+  ui: Supervisor,
+  publish: (event: ApiEvent) => boolean,
+  replay: PageReplay
+): (page?: string) => void {
   return (page = 'history') => {
-    publish({ type: 'page', page })
-    ui.ensureRunning(['--page', page])
+    const delivered = publish({ type: 'page', page })
+    if (!ui.ensureRunning(['--page', page]) && !delivered) replay.keep(page)
   }
 }
 

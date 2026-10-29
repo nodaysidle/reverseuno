@@ -15,7 +15,7 @@ import { buildApi, redactSecrets } from './api'
 import { notify } from './paste'
 import { seedDemo } from './demo'
 import { readOmarchyTheme } from './theme'
-import { findUiBinary, openHub, Supervisor } from './supervisor'
+import { findUiBinary, openHub, PageReplay, Supervisor } from './supervisor'
 
 const isDev = !app.isPackaged
 const userData = process.env.REVERSEUNO_USER_DATA || join(app.getPath('appData'), 'reverseuno')
@@ -96,7 +96,8 @@ const ui = new Supervisor({
     : null,
   log: (message) => log.info(message)
 })
-const showHub = openHub(ui, (event) => control?.publish(event))
+const pageReplay = new PageReplay()
+const showHub = openHub(ui, (event) => control?.publish(event) ?? false, pageReplay)
 
 function rendererUrl(page: string): string {
   const base = process.env.ELECTRON_RENDERER_URL
@@ -297,7 +298,11 @@ function createControl(): void {
   control = new ControlServer(userData, {
     rpc: redactSecrets(api),
     state: () => engine.getState(),
-    snapshot: () => [{ type: 'state', state: engine.overlayEvent(engine.getState()) }, overlayEvent()],
+    snapshot: () => [
+      { type: 'state', state: engine.overlayEvent(engine.getState()) },
+      overlayEvent(),
+      ...pageReplay.take()
+    ],
     start: (insert) => engine.start(insert),
     stop: () => engine.stop(),
     toggle: () => engine.toggle(),

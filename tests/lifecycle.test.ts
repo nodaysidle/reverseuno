@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { describe, expect, it } from 'vitest'
-import { findUiBinary, openHub, Supervisor, type Child } from '../src/main/supervisor'
+import { ALREADY_RUNNING_EXIT, findUiBinary, openHub, PageReplay, Supervisor, type Child } from '../src/main/supervisor'
 
 class FakeChild extends EventEmitter implements Child {
   killed = false
@@ -111,6 +111,27 @@ describe('Qt app supervisor', () => {
     expect(h.sup.ensureRunning()).toBe(false)
   })
 
+  it('a second Qt app that finds one running is not restarted and costs no budget', () => {
+    const h = harness()
+    for (let i = 0; i < 10; i++) {
+      h.sup.ensureRunning()
+      h.children.at(-1)!.emit('exit', ALREADY_RUNNING_EXIT, null)
+      h.runTimers()
+    }
+    expect(h.spawns).toHaveLength(10)
+    expect(h.sup.running).toBe(false)
+    expect(h.timers).toHaveLength(0)
+    expect(h.logs.filter((line) => line.includes('already running'))).toHaveLength(10)
+    expect(h.logs.some((line) => line.includes('giving up'))).toBe(false)
+    // the budget is untouched: a real crash loop still gets all 5 restarts
+    h.sup.ensureRunning()
+    for (let i = 0; i < 5; i++) {
+      h.exitLast()
+      h.runTimers()
+    }
+    expect(h.spawns).toHaveLength(16)
+  })
+
   it('no binary: never spawns', () => {
     const sup = new Supervisor({ spawn: null, log: () => undefined })
     expect(sup.ensureRunning()).toBe(false)
@@ -122,7 +143,7 @@ describe('show', () => {
   it('show starts the child if not running', () => {
     const h = harness()
     const events: unknown[] = []
-    const show = openHub(h.sup, (event) => events.push(event))
+    const show = openHub(h.sup, (event) => events.push(event) > 0, new PageReplay())
     show('settings')
     expect(h.spawns).toEqual([['--page', 'settings']])
     expect(events).toEqual([{ type: 'page', page: 'settings' }])

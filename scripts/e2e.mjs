@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 /**
  * Full acoustic end-to-end receipt:
- *   virtual PipeWire source -> reverseuno app -> Deepgram -> OpenRouter -> paste into Ghostty
+ *   virtual PipeWire source -> reverseuno app -> Deepgram -> OpenRouter -> paste into a target window
  *
  * Requirements:
  *   - Deepgram + OpenRouter keys in the environment or ~/.config/whisper-bar/config.env
- *   - Electron (fake audio capture), ghostty, wtype, wl-copy, grim, hyprctl
+ *   - Electron (fake audio capture; the target and decoy are Electron windows from scripts/e2e-target),
+ *     wtype, wl-copy, grim, hyprctl
+ *   - E2E_WITH_UI=1: also run the Qt app (qt/reverseuno-ui, build it first) so the Overlay is
+ *     mapped during the paste. It talks only to this e2e engine (its own control file).
  *   - /tmp/wispr-teardown/flowlite/test.wav (or pass a path)
  *
  * This launches a second reverseuno instance with its own userData, so it does
@@ -32,6 +35,8 @@ const stealFocus = process.env.E2E_STEAL_FOCUS !== '0'
 // E2E_STT=openrouter runs the same receipt through OpenRouter transcription.
 const sttProvider = process.env.E2E_STT === 'openrouter' ? 'openrouter' : 'deepgram'
 const appLog = join(userData, 'app.log')
+const withUi = process.env.E2E_WITH_UI === '1'
+const uiBinary = join(repo, 'qt/reverseuno-ui')
 const receiptFile = join(receiptsDir, `e2e-${runId}.json`)
 
 let appProcess = null
@@ -168,6 +173,9 @@ async function focusTarget(address) {
 
 async function startApp() {
   if (!existsSync(electron)) throw new Error(`Electron not found at ${electron}; run npm install`)
+  if (withUi && !existsSync(uiBinary)) {
+    throw new Error(`E2E_WITH_UI=1 needs ${uiBinary}; build it: cd qt && qmake6 && make -j$(nproc)`)
+  }
   rmSync(userData, { recursive: true, force: true })
   mkdirSync(userData, { recursive: true })
   if (sttProvider !== 'deepgram') {
@@ -179,8 +187,10 @@ async function startApp() {
     env: {
       ...process.env,
       REVERSEUNO_USER_DATA: userData,
-      // Engine only: no Qt app on the live session.
-      REVERSEUNO_NO_UI: '1',
+      // Default: engine only, no Qt app on the live session. With E2E_WITH_UI=1 the engine
+      // starts this repo's Qt app in its own process group (so cleanup's group kill reaps it)
+      // and hands it this run's control file.
+      ...(withUi ? { REVERSEUNO_UI: uiBinary, REVERSEUNO_NO_UI: undefined } : { REVERSEUNO_NO_UI: '1' }),
       REVERSEUNO_OZONE: process.env.REVERSEUNO_OZONE ?? 'wayland',
       REVERSEUNO_GPU: '0',
       REVERSEUNO_FAKE_AUDIO: wavFile,
@@ -199,7 +209,7 @@ async function startApp() {
       return false
     }
   }, 20_000, 'reverseuno health')
-  console.log(`[e2e] app: pid ${appProcess.pid}, control port ${info.port}`)
+  console.log(`[e2e] app: pid ${appProcess.pid}, control port ${info.port}${withUi ? ', with Qt app' : ''}`)
   return info
 }
 

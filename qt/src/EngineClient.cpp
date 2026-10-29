@@ -9,17 +9,18 @@
 #include <QtGlobal>
 #include <chrono>
 
-namespace {
-QString defaultControlFile()
+QString EngineClient::standardControlFile()
 {
-    const QString env = qEnvironmentVariable("REVERSEUNO_CONTROL_FILE");
-    if (!env.isEmpty())
-        return env;
     QString base = qEnvironmentVariable("XDG_CONFIG_HOME");
     if (base.isEmpty())
         base = QDir::homePath() + "/.config";
     return base + "/reverseuno/control.json";
 }
+
+QString EngineClient::defaultControlFile()
+{
+    const QString env = qEnvironmentVariable("REVERSEUNO_CONTROL_FILE");
+    return env.isEmpty() ? standardControlFile() : env;
 }
 
 EngineClient::EngineClient(const QString &controlFile, QObject *parent)

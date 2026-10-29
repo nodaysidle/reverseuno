@@ -18,6 +18,11 @@ public:
     // `controlFile` overrides the discovered control.json path (tests).
     explicit EngineClient(const QString &controlFile = QString(), QObject *parent = nullptr);
 
+    // ~/.config/reverseuno/control.json (XDG_CONFIG_HOME aware): the user's own engine.
+    static QString standardControlFile();
+    // REVERSEUNO_CONTROL_FILE (the engine sets it for its child), else the standard file.
+    static QString defaultControlFile();
+
     bool connected() const { return m_connected; }
     int connectAttempts() const { return m_attempts; }
 
