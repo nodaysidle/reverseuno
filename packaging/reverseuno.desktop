@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=reverseuno
+GenericName=Dictation
+Comment=Hold Right Super to dictate
+Exec=electron44 /usr/lib/reverseuno
+Icon=reverseuno
+Terminal=false
+Categories=Utility;Accessibility;
+StartupWMClass=reverseuno

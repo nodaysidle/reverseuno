@@ -1,10 +1,9 @@
 import type { DictationEntry } from '@shared/types'
 import type { Store } from './store'
 
-const DEMO: { text: string; raw: string; app: string; title: string; hoursAgo: number; seconds: number }[] = [
+const DEMO: { text: string; app: string; title: string; hoursAgo: number; seconds: number }[] = [
   {
     text: 'Quick note before the standup: the streaming fallback should retry the whole clip in one request, not replay it packet by packet.',
-    raw: 'quick note before the standup the streaming fallback should retry the whole clip in one request not replay it packet by packet',
     app: 'code',
     title: 'reverseuno — dictation.ts',
     hoursAgo: 0.4,
@@ -12,7 +11,6 @@ const DEMO: { text: string; raw: string; app: string; title: string; hoursAgo: n
   },
   {
     text: "Let's move the review to Thursday at 6 PM. I'll send the quarterly numbers beforehand.",
-    raw: "let's move the review to thursday at six pm i'll send the quarterly numbers beforehand",
     app: 'Slack',
     title: 'Slack | nodaysidle',
     hoursAgo: 2.1,
@@ -20,7 +18,6 @@ const DEMO: { text: string; raw: string; app: string; title: string; hoursAgo: n
   },
   {
     text: 'Add a hydration guard to the clipboard snapshot, and skip restoring if the clipboard changed while the paste was in flight.',
-    raw: 'add a hydration guard to the clipboard snapshot and skip restoring if the clipboard changed while the paste was in flight',
     app: 'cursor',
     title: 'clipboard.ts — reverseuno',
     hoursAgo: 4.6,
@@ -28,7 +25,6 @@ const DEMO: { text: string; raw: string; app: string; title: string; hoursAgo: n
   },
   {
     text: 'The dictionary should prioritise starred words when we send keyterms to Deepgram, otherwise the vocabulary list gets truncated by recency.',
-    raw: 'the dictionary should prioritise starred words when we send keyterms to deepgram otherwise the vocabulary list gets truncated by recency',
     app: 'Ghostty',
     title: 'fish — ~/dev/nodaysidle/reverseuno',
     hoursAgo: 22,
@@ -36,7 +32,6 @@ const DEMO: { text: string; raw: string; app: string; title: string; hoursAgo: n
   },
   {
     text: 'Thanks for the walkthrough — the overlay feels much calmer now that it only appears while recording.',
-    raw: 'thanks for the walkthrough the overlay feels much calmer now that it only appears while recording',
     app: 'Mail',
     title: 'Re: overlay polish',
     hoursAgo: 27,
@@ -44,7 +39,6 @@ const DEMO: { text: string; raw: string; app: string; title: string; hoursAgo: n
   },
   {
     text: 'Draft the release note: Right Super to talk, release to paste. No window switching, no copy-paste dance.',
-    raw: 'draft the release note right cmd to talk release to paste no window switching no copy paste dance',
     app: 'Notion',
     title: 'Release notes',
     hoursAgo: 49,
@@ -52,7 +46,6 @@ const DEMO: { text: string; raw: string; app: string; title: string; hoursAgo: n
   },
   {
     text: 'Check whether the Apple Magic Keyboard sends Super_R on the right Command key, then bind press and release separately.',
-    raw: 'check whether the apple magic keyboard sends super r on the right command key then bind press and release separately',
     app: 'code',
     title: 'hyprland.lua',
     hoursAgo: 72,
@@ -68,7 +61,6 @@ export function seedDemo(store: Store): void {
     const entry: DictationEntry = {
       id: `demo-${createdAt}`,
       text: item.text,
-      rawText: item.raw,
       createdAt,
       provider: 'deepgram',
       model: 'nova-3',

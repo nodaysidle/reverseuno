@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/">
+        <file alias="tray.png">../../resources/tray.png</file>
+    </qresource>
+</RCC>

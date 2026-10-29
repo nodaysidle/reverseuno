@@ -147,33 +147,6 @@ export async function focusWindow(address: string): Promise<boolean> {
   return legacy.code === 0 && /^ok/i.test(legacy.stdout.toString('utf8').trim())
 }
 
-// Wayland clients cannot position themselves, so Electron's setBounds() is
-// ignored. On Hyprland, ask the compositor to place our own window instead.
-export async function placeOwnWindow(title: string, x: number, y: number): Promise<boolean> {
-  const clients = await runCommand('hyprctl', ['clients', '-j'], { timeoutMs: 1200 })
-  if (clients.code !== 0) return false
-  let address = ''
-  try {
-    const list = JSON.parse(clients.stdout.toString('utf8')) as { address?: string; pid?: number; title?: string }[]
-    address = list.find((item) => item.pid === process.pid && item.title === title)?.address ?? ''
-  } catch {
-    return false
-  }
-  if (!/^0x[0-9a-f]+$/i.test(address)) return false
-  const lua = await runCommand(
-    'hyprctl',
-    ['dispatch', `hl.dsp.window.move({ x = ${Math.round(x)}, y = ${Math.round(y)}, window = "address:${address}" })`],
-    { timeoutMs: 1200 }
-  )
-  if (lua.code === 0 && /^ok/i.test(lua.stdout.toString('utf8').trim())) return true
-  const legacy = await runCommand(
-    'hyprctl',
-    ['dispatch', 'movewindowpixel', `exact ${Math.round(x)} ${Math.round(y)},address:${address}`],
-    { timeoutMs: 1200 }
-  )
-  return legacy.code === 0
-}
-
 // Make sure keystrokes land in the window the user was in when they pressed the
 // key. The overlay, a notification or follow_mouse can move focus while the
 // transcript is in flight.

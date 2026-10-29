@@ -1,0 +1,15 @@
+Makefile
+Makefile.*
+*.o
+moc_*
+qrc_*
+.qmake.stash
+.qmake.cache
+/reverseuno-ui
+/tests/tst_*/tst_theme
+/tests/tst_*/tst_engineclient
+/tests/tst_*/tst_overlay
+/tests/tst_*/tst_history
+/tests/tst_*/tst_tray
+target_wrapper.sh
+*.moc

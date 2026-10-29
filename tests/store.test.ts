@@ -12,7 +12,6 @@ function entry(partial: Partial<DictationEntry> = {}): DictationEntry {
   return {
     id: 'entry-1',
     text: 'send it to nodaysidle',
-    rawText: 'send it to nodaysidle',
     createdAt: Date.now(),
     provider: 'deepgram',
     model: 'nova-3',

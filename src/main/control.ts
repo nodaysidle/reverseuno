@@ -3,10 +3,26 @@ import { randomBytes } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { CONTROL_PORT } from '@shared/defaults'
+import type { StateEvent } from '@shared/types'
 import { log } from './logger'
 
+// Defined here (not shared) so only the engine and its Qt client see the wire format.
+export type ApiEvent =
+  | { type: 'state'; state: StateEvent }
+  | { type: 'level'; level: number }
+  | { type: 'refresh' }
+  | { type: 'page'; page: string }
+  | { type: 'overlay'; visible: boolean; x: number; y: number; width: number; height: number }
+
+export const PING_INTERVAL_MS = 15_000
+
+export type ApiTable = Record<string, (...args: unknown[]) => Promise<unknown> | unknown>
+
 export interface ControlHandlers {
+  rpc: ApiTable
   state(): unknown
+  /** Events a new /events client gets first (current state, overlay placement). */
+  snapshot(): ApiEvent[]
   start(insert: boolean): Promise<unknown>
   stop(): Promise<unknown>
   toggle(): Promise<unknown>
@@ -34,10 +50,13 @@ export class ControlServer {
   private heartbeat: NodeJS.Timeout | null = null
   private readonly token = randomBytes(32).toString('hex')
   private readonly file: string
+  private readonly clients = new Set<ServerResponse>()
+  private pinger: NodeJS.Timeout | null = null
 
   constructor(
     configDir: string,
-    private readonly handlers: ControlHandlers
+    private readonly handlers: ControlHandlers,
+    private readonly pingMs = PING_INTERVAL_MS
   ) {
     this.file = join(configDir, 'control.json')
   }
@@ -108,6 +127,42 @@ export class ControlServer {
     res.end(json)
   }
 
+  /** True when at least one stream client was there to receive it. */
+  publish(event: ApiEvent): boolean {
+    if (this.clients.size === 0) return false
+    this.write(`data: ${JSON.stringify(event)}\n\n`)
+    return this.clients.size > 0
+  }
+
+  private write(chunk: string): void {
+    for (const client of this.clients) {
+      try {
+        client.write(chunk)
+      } catch {
+        this.clients.delete(client)
+      }
+    }
+  }
+
+  private addClient(req: IncomingMessage, res: ServerResponse): void {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-store',
+      Connection: 'keep-alive'
+    })
+    res.flushHeaders()
+    for (const event of this.handlers.snapshot()) res.write(`data: ${JSON.stringify(event)}\n\n`)
+    this.clients.add(res)
+    const drop = (): void => void this.clients.delete(res)
+    res.on('close', drop)
+    res.on('error', drop)
+    req.on('error', drop)
+    if (!this.pinger) {
+      this.pinger = setInterval(() => this.write(': ping\n\n'), this.pingMs)
+      this.pinger.unref?.()
+    }
+  }
+
   private async body(req: IncomingMessage): Promise<Record<string, unknown>> {
     const chunks: Buffer[] = []
     let size = 0
@@ -129,6 +184,12 @@ export class ControlServer {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1')
     const path = url.pathname.replace(/\/+$/, '') || '/'
 
+    // Browsers always send Origin on cross-site requests; the CLI and Qt client never do.
+    if (req.headers.origin !== undefined) {
+      this.send(res, 403, { ok: false, error: 'forbidden' })
+      return
+    }
+
     if (path === '/health' && req.method === 'GET') {
       this.send(res, 200, { ok: true, app: 'reverseuno', pid: process.pid })
       return
@@ -145,6 +206,11 @@ export class ControlServer {
       return
     }
 
+    if (path === '/events' && req.method === 'GET') {
+      this.addClient(req, res)
+      return
+    }
+
     if (path === '/devices' && req.method === 'GET') {
       this.send(res, 200, { ok: true, devices: await this.handlers.devices() })
       return
@@ -158,6 +224,21 @@ export class ControlServer {
     const body = await this.body(req)
     // One line per CLI call, so a log shows whether the key binds fired.
     log.info('[control] request', { path })
+
+    if (path.startsWith('/rpc/')) {
+      const method = path.slice('/rpc/'.length)
+      if (!Object.hasOwn(this.handlers.rpc, method)) {
+        this.send(res, 404, { ok: false, error: 'unknown method' })
+        return
+      }
+      try {
+        const args = Array.isArray(body.args) ? body.args : []
+        this.send(res, 200, { ok: true, result: (await this.handlers.rpc[method]!(...args)) ?? null })
+      } catch (error) {
+        this.send(res, 400, { ok: false, error: String(error) })
+      }
+      return
+    }
 
     switch (path) {
       case '/start':
@@ -213,6 +294,10 @@ export class ControlServer {
   async stop(): Promise<void> {
     if (this.heartbeat) clearInterval(this.heartbeat)
     this.heartbeat = null
+    if (this.pinger) clearInterval(this.pinger)
+    this.pinger = null
+    for (const client of this.clients) client.end()
+    this.clients.clear()
     if (this.server) {
       await new Promise<void>((resolve) => this.server?.close(() => resolve()))
       this.server = null

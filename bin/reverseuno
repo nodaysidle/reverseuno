@@ -5,7 +5,7 @@ set -euo pipefail
 CONFIG="${REVERSEUNO_CONTROL_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/reverseuno/control.json}"
 
 if [[ ! -f "$CONFIG" ]]; then
-  echo "reverseuno is not running (no $CONFIG). Start it with: npm start" >&2
+  echo "reverseuno is not running (no $CONFIG). Start it from the app launcher, or npm start in a checkout." >&2
   exit 1
 fi
 
@@ -24,7 +24,7 @@ usage: reverseuno <command> [args]
   cancel             discard the current recording
   state              print the current state as JSON
   health             check whether the app is reachable
-  show [page]        open the hub (home, dictionary, snippets, style, settings)
+  show [page]        open the Hub (history, dictionary, snippets, settings)
   devices            list audio input devices
   device <id>        select an audio input by device id
   paste <text>       insert text at the focused cursor
@@ -66,7 +66,7 @@ case "$command" in
     data=$(obj id "$id")
     ;;
   show)
-    page="${1:-home}"
+    page="${1:-history}"
     path="/show"
     data=$(obj page "$page")
     ;;

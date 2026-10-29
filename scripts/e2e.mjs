@@ -1,12 +1,16 @@
 #!/usr/bin/env node
 /**
  * Full acoustic end-to-end receipt:
- *   virtual PipeWire source -> reverseuno app -> Deepgram -> OpenRouter -> paste into Ghostty
+ *   virtual PipeWire source -> reverseuno app -> Deepgram -> OpenRouter -> paste into a target window
  *
  * Requirements:
  *   - Deepgram + OpenRouter keys in the environment or ~/.config/whisper-bar/config.env
- *   - Electron (fake audio capture), ghostty, wtype, wl-copy, grim, hyprctl
- *   - /tmp/wispr-teardown/flowlite/test.wav (or pass a path)
+ *   - Electron (fake audio capture; the target and decoy are Electron windows from scripts/e2e-target),
+ *     wtype, wl-copy, grim, hyprctl
+ *   - E2E_WITH_UI=1: also run the Qt app (qt/reverseuno-ui, build it first) so the Overlay is
+ *     mapped during the paste. It talks only to this e2e engine (its own control file).
+ *   - /tmp/wispr-teardown/flowlite/test.wav (or pass a path; set E2E_EXPECT=word,word to the words your
+ *     recording says — the default is `meet,thursday`)
  *
  * This launches a second reverseuno instance with its own userData, so it does
  * not read or modify the real profile.
@@ -32,6 +36,11 @@ const stealFocus = process.env.E2E_STEAL_FOCUS !== '0'
 // E2E_STT=openrouter runs the same receipt through OpenRouter transcription.
 const sttProvider = process.env.E2E_STT === 'openrouter' ? 'openrouter' : 'deepgram'
 const appLog = join(userData, 'app.log')
+const withUi = process.env.E2E_WITH_UI === '1'
+// Words the transcript must contain (comma-separated); the default matches the original test.wav.
+const expectWords = (process.env.E2E_EXPECT ?? 'meet,thursday').split(',').map((word) => word.trim()).filter(Boolean)
+const containsExpected = (text) => expectWords.every((word) => new RegExp(word, 'i').test(text))
+const uiBinary = join(repo, 'qt/reverseuno-ui')
 const receiptFile = join(receiptsDir, `e2e-${runId}.json`)
 
 let appProcess = null
@@ -139,6 +148,25 @@ function windowGeometry(client) {
   return `${x},${y} ${w}x${h}`
 }
 
+/** The Qt Overlay is a layer-shell surface, so it is in `hyprctl layers`, not `clients`. */
+function overlayLayer() {
+  try {
+    const layers = JSON.parse(sh('hyprctl', ['layers', '-j']).stdout)
+    const found = []
+    const walk = (node) => {
+      if (Array.isArray(node)) node.forEach(walk)
+      else if (node && typeof node === 'object') {
+        if (node.namespace === 'reverseuno-overlay') found.push(node)
+        Object.values(node).forEach(walk)
+      }
+    }
+    walk(layers)
+    return found[0] ?? null
+  } catch {
+    return null
+  }
+}
+
 function screenshot(pattern, file) {
   const client = hyprClients().find((item) =>
     `${item.class ?? ''} ${item.title ?? ''}`.toLowerCase().includes(pattern.toLowerCase())
@@ -168,6 +196,9 @@ async function focusTarget(address) {
 
 async function startApp() {
   if (!existsSync(electron)) throw new Error(`Electron not found at ${electron}; run npm install`)
+  if (withUi && !existsSync(uiBinary)) {
+    throw new Error(`E2E_WITH_UI=1 needs ${uiBinary}; build it: cd qt && qmake6 && make -j$(nproc)`)
+  }
   rmSync(userData, { recursive: true, force: true })
   mkdirSync(userData, { recursive: true })
   if (sttProvider !== 'deepgram') {
@@ -179,6 +210,10 @@ async function startApp() {
     env: {
       ...process.env,
       REVERSEUNO_USER_DATA: userData,
+      // Default: engine only, no Qt app on the live session. With E2E_WITH_UI=1 the engine
+      // starts this repo's Qt app in its own process group (so cleanup's group kill reaps it)
+      // and hands it this run's control file.
+      ...(withUi ? { REVERSEUNO_UI: uiBinary, REVERSEUNO_NO_UI: undefined } : { REVERSEUNO_NO_UI: '1' }),
       REVERSEUNO_OZONE: process.env.REVERSEUNO_OZONE ?? 'wayland',
       REVERSEUNO_GPU: '0',
       REVERSEUNO_FAKE_AUDIO: wavFile,
@@ -197,7 +232,7 @@ async function startApp() {
       return false
     }
   }, 20_000, 'reverseuno health')
-  console.log(`[e2e] app: pid ${appProcess.pid}, control port ${info.port}`)
+  console.log(`[e2e] app: pid ${appProcess.pid}, control port ${info.port}${withUi ? ', with Qt app' : ''}`)
   return info
 }
 
@@ -335,7 +370,13 @@ async function main() {
     const focused = await focusTarget(targetAddress)
     if (!focused) console.warn('[e2e] warning: could not refocus target after start')
   }
-  const overlayShot = screenshot('reverseuno-overlay', join(receiptsDir, 'e2e-overlay.png'))
+  const overlay = withUi ? overlayLayer() : null
+  let overlayShot = screenshot('reverseuno-overlay', join(receiptsDir, 'e2e-overlay.png'))
+  if (overlay && !overlayShot) {
+    const file = join(receiptsDir, 'e2e-overlay.png')
+    const shot = spawnSync('grim', ['-g', `${overlay.x},${overlay.y} ${overlay.w}x${overlay.h}`, file], { encoding: 'utf8' })
+    overlayShot = shot.status === 0 ? file : null
+  }
 
   await sleep(3200)
   const stop = await api(info, 'POST', '/stop')
@@ -354,19 +395,17 @@ async function main() {
   const normalise = (value) => value.replace(/\s+/g, ' ').trim()
   const checks = {
     stopOk: stop?.ok === true,
-    transcriptFound:
-      typeof stop?.result?.text === 'string' &&
-      /meet/i.test(stop.result.text) &&
-      /thursday/i.test(stop.result.text),
+    transcriptFound: typeof stop?.result?.text === 'string' && containsExpected(stop.result.text),
     pastedIntoWindow:
       normalise(output).length > 0 &&
       normalise(output).includes(normalise(stop?.result?.text ?? '')),
     historyWritten:
       Boolean(entry) &&
-      /meet/i.test(entry.text) &&
+      containsExpected(entry.text) &&
       entry.asrMs > 0 &&
       entry.durationMs > 0,
     formattingRan: Boolean(entry && entry.formatMs > 0),
+    ...(withUi ? { overlayMapped: overlay !== null } : {}),
     ...(stealFocus ? { focusWasStolen: focusStolen, decoyUntouched: decoyOutput.trim() === '' } : {}),
     clipboardRestored: clipboardBefore === 'reverseuno-e2e-clipboard-sentinel' && clipboardAfter === clipboardBefore,
     timingPopulated: Boolean(entry && entry.totalMs > 0)
@@ -382,7 +421,6 @@ async function main() {
     stop,
     input: 'chromium-fake-audio',
     transcript: stop?.result?.text ?? null,
-    rawText: entry?.rawText ?? null,
     output: normalise(output),
     clipboard: { before: clipboardBefore, after: clipboardAfter },
     sttProvider,

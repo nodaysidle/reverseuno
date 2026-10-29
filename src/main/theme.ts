@@ -1,10 +1,8 @@
-import { existsSync, readFileSync, watch, type FSWatcher } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { ThemePalette } from '@shared/types'
 
-// omarchy-theme-set replaces current/theme wholesale and then rewrites
-// theme.name, so the parent directory is the stable thing to watch.
 export const OMARCHY_CURRENT = join(homedir(), '.local', 'state', 'omarchy', 'current')
 
 const HEX = /^#[0-9a-fA-F]{6}$/
@@ -53,25 +51,5 @@ export function readOmarchyTheme(root = OMARCHY_CURRENT): ThemePalette | null {
     return paletteFrom(parseColors(readFileSync(file, 'utf8')), name)
   } catch {
     return null
-  }
-}
-
-/** Calls back with the new palette whenever Omarchy switches themes. */
-export function watchOmarchyTheme(onChange: (palette: ThemePalette | null) => void): () => void {
-  if (!existsSync(OMARCHY_CURRENT)) return () => undefined
-  let timer: NodeJS.Timeout | undefined
-  let watcher: FSWatcher | undefined
-  try {
-    watcher = watch(OMARCHY_CURRENT, () => {
-      clearTimeout(timer)
-      // A theme switch is a burst of renames and writes; settle first.
-      timer = setTimeout(() => onChange(readOmarchyTheme()), 400)
-    })
-  } catch {
-    return () => undefined
-  }
-  return () => {
-    clearTimeout(timer)
-    watcher?.close()
   }
 }

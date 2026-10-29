@@ -113,7 +113,6 @@ export interface ModelOption {
 export interface DictationEntry {
   id: string
   text: string
-  rawText: string
   createdAt: number
   provider: string
   model: string
@@ -200,7 +199,6 @@ export interface StateEvent {
   message?: string
   interim?: string
   text?: string
-  rawText?: string
   appClass?: string
   appTitle?: string
   startedAt?: number
@@ -248,11 +246,6 @@ export interface ProviderTestResult {
 
 export interface ReverseunoApi {
   bootstrap(): Promise<Bootstrap>
-  onState(callback: (event: StateEvent) => void): () => void
-  onRefresh(callback: () => void): () => void
-  onPage(callback: (page: string) => void): () => void
-  onLevel(callback: (level: number) => void): () => void
-  onTheme(callback: (theme: ThemePalette | null) => void): () => void
   state(): Promise<StateEvent>
   updateSettings(patch: DeepPartial<Settings>): Promise<Settings>
   setSecret(name: SecretName, value: string): Promise<SecretStatus[]>

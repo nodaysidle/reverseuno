@@ -69,3 +69,8 @@ pnpm-debug.log*
 *.tgz
 *.zip
 *.iso
+
+# makepkg leftovers when building inside packaging/
+packaging/src/
+packaging/pkg/
+packaging/*.pkg.tar.*

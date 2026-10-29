@@ -1,43 +1,21 @@
-import {
-  app,
-  BrowserWindow,
-  dialog,
-  ipcMain,
-  Menu,
-  nativeImage,
-  screen,
-  session,
-  shell,
-  Tray
-} from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, screen, session, shell } from 'electron'
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { CONTROL_PORT } from '@shared/defaults'
-import { DEVELOPER_VOCABULARY } from '@shared/vocabulary'
-import type {
-  AudioDevice,
-  Bootstrap,
-  DeepPartial,
-  ModelKind,
-  ProviderTestResult,
-  SecretName,
-  Settings,
-  StateEvent
-} from '@shared/types'
+import type { AudioDevice, Bootstrap } from '@shared/types'
 import { statsFromHistory } from '@shared/stats'
 import { DictationEngine } from './dictation'
 import { Store } from './store'
 import { Secrets } from './secrets'
 import { initLogger, getLogPath, log } from './logger'
-import { ControlServer } from './control'
-import { copyToClipboard, notify, placeOwnWindow } from './paste'
-import { validateDeepgramKey } from './stt/deepgram'
-import { validateAnthropicKey, validateOpenRouterKey } from './format'
+import { ControlServer, type ApiEvent, type ApiTable } from './control'
+import { buildApi, redactSecrets } from './api'
+import { notify } from './paste'
 import { seedDemo } from './demo'
-import { listOpenRouterModels } from './models'
-import { readOmarchyTheme, watchOmarchyTheme } from './theme'
+import { readOmarchyTheme } from './theme'
+import { findUiBinary, openHub, PageReplay, Supervisor } from './supervisor'
 
 const isDev = !app.isPackaged
 const userData = process.env.REVERSEUNO_USER_DATA || join(app.getPath('appData'), 'reverseuno')
@@ -46,8 +24,7 @@ app.setName('reverseuno')
 
 // Native Wayland is the default when a Wayland session is present. XWayland is
 // available with REVERSEUNO_OZONE=x11, but some compositors never map those
-// windows. Overlay placement on Wayland comes from the Hyprland rules installed
-// by scripts/install-hyprland.py.
+// windows. The only window left is the hidden capture window (the Qt app draws the UI).
 const ozone = process.env.REVERSEUNO_OZONE || (process.env.WAYLAND_DISPLAY ? 'wayland' : 'x11')
 app.commandLine.appendSwitch('ozone-platform', ozone)
 // Hybrid HiDPI desktops report fractional text scaling (e.g. 1.1875) to Chromium,
@@ -80,15 +57,11 @@ if (process.env.REVERSEUNO_DEMO === '1') {
   seedDemo(store)
 }
 
-let hub: BrowserWindow | null = null
-let overlay: BrowserWindow | null = null
 let capture: BrowserWindow | null = null
-let tray: Tray | null = null
-let isQuitting = false
 let engine: DictationEngine
-let control: ControlServer
+let control: ControlServer | undefined
+let api: ApiTable
 let captureLoaded = false
-let pendingPage = ''
 const captureQueue: { channel: string; payload?: unknown }[] = []
 let deviceResolvers: ((devices: AudioDevice[]) => void)[] = []
 
@@ -96,16 +69,35 @@ const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
   app.exit(0)
 } else {
-  app.on('second-instance', () => {
-    void ensureTray()
-    showHub()
-  })
+  app.on('second-instance', () => showHub())
 }
 
-function resourcePath(name: string): string {
-  if (app.isPackaged) return join(process.resourcesPath, name)
-  return join(app.getAppPath(), 'resources', name)
-}
+// The Qt app (tray, Overlay, Hub) talks to this engine over the control server.
+const uiBinary = findUiBinary({
+  env: process.env,
+  packaged: app.isPackaged,
+  execDir: dirname(process.execPath),
+  appPath: app.getAppPath(),
+  path: process.env.PATH ?? '',
+  exists: existsSync
+})
+const ui = new Supervisor({
+  spawn: uiBinary
+    ? (args) => {
+        const child = spawn(uiBinary, args, {
+          // Point it at this engine's control file, not whatever ~/.config holds. Qt logs to
+          // journald when stderr is not a tty; force stderr so warnings reach our log.
+          env: { ...process.env, REVERSEUNO_CONTROL_FILE: join(userData, 'control.json'), QT_FORCE_STDERR_LOGGING: '1' },
+          stdio: ['ignore', 'ignore', 'pipe']
+        })
+        child.stderr?.on('data', (chunk: Buffer) => log.info('[ui]', chunk.toString('utf8').trimEnd()))
+        return child
+      }
+    : null,
+  log: (message) => log.info(message)
+})
+const pageReplay = new PageReplay()
+const showHub = openHub(ui, (event) => control?.publish(event) ?? false, pageReplay)
 
 function rendererUrl(page: string): string {
   const base = process.env.ELECTRON_RENDERER_URL
@@ -119,34 +111,14 @@ function loadPage(win: BrowserWindow, page: string): void {
   else void win.loadFile(join(__dirname, `../renderer/${page}.html`))
 }
 
-// What the tray menu offers depends on whether a dictation is recording, being
-// processed, or settled. Every state change reaches the hub channel, so track it there.
-type TrayBucket = 'idle' | 'listening' | 'processing'
-let trayBucket: TrayBucket = 'idle'
-
-function bucketFor(state: StateEvent['state']): TrayBucket {
-  if (state === 'listening') return 'listening'
-  if (state === 'transcribing' || state === 'formatting' || state === 'inserting') return 'processing'
-  return 'idle'
-}
-
 function sendHub(channel: string, payload?: unknown): void {
-  if (channel === 'state') {
-    const next = bucketFor((payload as StateEvent).state)
-    if (next !== trayBucket) {
-      trayBucket = next
-      updateTrayMenu()
-    }
-  }
-  if (hub && !hub.isDestroyed()) hub.webContents.send(`hub:${channel}`, payload)
-}
-
-function sendOverlay(event: StateEvent): void {
-  if (overlay && !overlay.isDestroyed()) overlay.webContents.send('overlay:state', event)
+  // State is published by the engine (publishState) as the merged overlay event.
+  if (channel === 'refresh') control?.publish({ type: 'refresh' })
+  else if (channel === 'page') control?.publish({ type: 'page', page: payload as string })
 }
 
 function sendLevel(level: number): void {
-  if (overlay && !overlay.isDestroyed()) overlay.webContents.send('overlay:level', level)
+  control?.publish({ type: 'level', level })
 }
 
 function sendCapture(channel: string, payload?: unknown): void {
@@ -172,76 +144,30 @@ function overlayBounds(): Electron.Rectangle {
   return { x, y, width, height }
 }
 
+let lastOverlayBounds: Electron.Rectangle = { x: 0, y: 0, width: 0, height: 0 }
+let lastOverlayVisible = false
+
+function overlayEvent(): ApiEvent {
+  return { type: 'overlay', visible: lastOverlayVisible, ...lastOverlayBounds }
+}
+
+function publishOverlay(visible: boolean): void {
+  lastOverlayVisible = visible
+  control?.publish(overlayEvent())
+}
+
+// The Qt app draws the Overlay (a layer-shell surface that never takes focus);
+// the engine decides where and when, and the stream carries it.
 function showOverlay(): void {
-  if (!overlay) return
-  const bounds = overlayBounds()
-  overlay.setBounds(bounds)
-  overlay.showInactive()
-  overlay.setAlwaysOnTop(true, 'screen-saver')
-  overlay.moveTop()
-  if (process.env.HYPRLAND_INSTANCE_SIGNATURE) {
-    void placeOwnWindow('reverseuno-overlay', bounds.x, bounds.y).catch(() => undefined)
-  }
+  lastOverlayBounds = overlayBounds()
+  publishOverlay(true)
 }
 
 function hideOverlay(): void {
-  if (!overlay) return
-  overlay.hide()
-  overlay.setIgnoreMouseEvents(true, { forward: true })
-}
-
-function setOverlayMouse(enabled: boolean): void {
-  if (!overlay) return
-  overlay.setIgnoreMouseEvents(!enabled, { forward: true })
+  publishOverlay(false)
 }
 
 function createWindows(): void {
-  const common = {
-    preload: join(__dirname, '../preload/index.js'),
-    contextIsolation: true,
-    sandbox: true,
-    nodeIntegration: false
-  }
-
-  hub = new BrowserWindow({
-    width: 1180,
-    height: 820,
-    minWidth: 960,
-    minHeight: 640,
-    show: false,
-    frame: false,
-    backgroundColor: hubBackground(),
-    title: 'reverseuno',
-    icon: resourcePath('icon.png'),
-    webPreferences: { ...common, spellcheck: false }
-  })
-  hub.setMenuBarVisibility(false)
-
-  overlay = new BrowserWindow({
-    ...overlayBounds(),
-    show: false,
-    frame: false,
-    transparent: true,
-    backgroundColor: '#00000000',
-    resizable: false,
-    movable: true,
-    minimizable: false,
-    maximizable: false,
-    fullscreenable: false,
-    skipTaskbar: true,
-    alwaysOnTop: true,
-    // Never take keyboard focus: the paste has to land in the window the user
-    // was dictating into. The Hyprland rule adds no_focus for the same reason.
-    focusable: false,
-    hasShadow: false,
-    title: 'reverseuno-overlay',
-    icon: resourcePath('icon.png'),
-    webPreferences: { ...common, backgroundThrottling: false }
-  })
-  overlay.setAlwaysOnTop(true, 'screen-saver')
-  overlay.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-  overlay.setIgnoreMouseEvents(true, { forward: true })
-
   capture = new BrowserWindow({
     width: 2,
     height: 2,
@@ -258,42 +184,15 @@ function createWindows(): void {
     }
   })
 
-  hub.on('close', (event) => {
-    if (isQuitting) return
-    event.preventDefault()
-    hub?.hide()
-    void ensureTray()
-  })
-  hub.on('show', () => updateTrayMenu())
-  hub.on('hide', () => updateTrayMenu())
-
-  overlay.on('closed', () => {
-    overlay = null
-  })
   capture.on('closed', () => {
     capture = null
   })
-
-  hub.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:/i.test(url)) void shell.openExternal(url)
-    return { action: 'deny' }
-  })
-}
-
-function showHub(page = 'home'): void {
-  pendingPage = page
-  if (!hub) return
-  if (hub.isMinimized()) hub.restore()
-  hub.show()
-  hub.focus()
-  updateTrayMenu()
-  if (hub.webContents.isLoading()) return
-  hub.webContents.send('hub:page', page)
 }
 
 function quitApp(): void {
   void engine?.cancel()
-  isQuitting = true
+  // Before app.quit(): the Qt app exits on its own after a tray Quit and must not be restarted.
+  ui.stop()
   app.quit()
 }
 
@@ -328,11 +227,6 @@ function setLogin(enabled: boolean): void {
     ].join('\n'),
     { mode: 0o644 }
   )
-}
-
-function hubBackground(): string {
-  const palette = store.settings.appearance.theme === 'omarchy' ? readOmarchyTheme() : null
-  return palette?.background ?? '#F4EFE4'
 }
 
 // The installer writes a marked block into Hyprland's bindings; its absence is the
@@ -371,8 +265,10 @@ function createEngine(): void {
     secrets,
     showOverlay,
     hideOverlay,
-    setOverlayMouse,
-    sendOverlay,
+    // The Qt Overlay reads both from the stream (state events) and sets its own input region.
+    setOverlayMouse: () => undefined,
+    sendOverlay: () => undefined,
+    publishState: (state) => control?.publish({ type: 'state', state }),
     sendLevel,
     sendHub,
     sendCapture,
@@ -400,14 +296,20 @@ function requestDevices(): Promise<AudioDevice[]> {
 
 function createControl(): void {
   control = new ControlServer(userData, {
+    rpc: redactSecrets(api),
     state: () => engine.getState(),
+    snapshot: () => [
+      { type: 'state', state: engine.overlayEvent(engine.getState()) },
+      overlayEvent(),
+      ...pageReplay.take()
+    ],
     start: (insert) => engine.start(insert),
     stop: () => engine.stop(),
     toggle: () => engine.toggle(),
     cancel: () => engine.cancel(),
     language: (language, cycle) => engine.setLanguage(language, cycle),
     show: async (page) => {
-      showHub(page || 'home')
+      showHub(page || 'history')
       return { ok: true }
     },
     paste: (text) => engine.paste(text),
@@ -426,159 +328,6 @@ function createControl(): void {
 }
 
 function registerIpc(): void {
-  ipcMain.handle('bootstrap', () => bootstrap())
-  ipcMain.handle('state:get', () => engine.getState())
-
-  ipcMain.handle('settings:update', (_, patch: DeepPartial<Settings>) => {
-    const before = store.settings.system.launchAtLogin
-    const settings = store.updateSettings(patch)
-    if (settings.system.launchAtLogin !== before) setLogin(settings.system.launchAtLogin)
-    sendHub('refresh')
-    return settings
-  })
-
-  ipcMain.handle('secret:set', (_, name: SecretName, value: string) => {
-    secrets.set(name, value)
-    sendHub('refresh')
-    return secrets.allStatuses()
-  })
-  ipcMain.handle('secret:clear', (_, name: SecretName) => {
-    secrets.clear(name)
-    sendHub('refresh')
-    return secrets.allStatuses()
-  })
-
-  ipcMain.handle('provider:test', async (_, name: SecretName): Promise<ProviderTestResult> => {
-    const started = Date.now()
-    if (name === 'anthropic') {
-      const result = await validateAnthropicKey(secrets.get('anthropic'))
-      return { ...result, latencyMs: Date.now() - started }
-    }
-    if (name === 'deepgram') {
-      const result = await validateDeepgramKey(secrets.get('deepgram'))
-      return { ...result, latencyMs: Date.now() - started }
-    }
-    const result = await validateOpenRouterKey(secrets.get('openrouter'), store.settings.format.baseUrl)
-    return { ...result, latencyMs: Date.now() - started }
-  })
-
-  ipcMain.handle('devices:list', () => requestDevices())
-  ipcMain.handle('models:list', (_, kind: ModelKind) =>
-    listOpenRouterModels(kind === 'stt' ? 'stt' : 'format', store.settings.format.baseUrl)
-  )
-
-  ipcMain.handle('history:update', (_, id: string, text: string) => {
-    const result = store.recordEdit(id, text)
-    sendHub('refresh')
-    return result
-  })
-  ipcMain.handle('history:delete', (_, id: string) => {
-    store.deleteHistory(id)
-    sendHub('refresh')
-  })
-  ipcMain.handle('history:clear', () => {
-    store.clearHistory()
-    sendHub('refresh')
-  })
-  ipcMain.handle('history:copy', async (_, id: string) => {
-    const entry = store.history.find((item) => item.id === id)
-    if (!entry) return { ok: false, error: 'That dictation no longer exists.' }
-    const ok = await copyToClipboard(entry.text)
-    return ok ? { ok } : { ok, error: 'Could not write to the clipboard.' }
-  })
-  ipcMain.handle('history:insert', async (_, id: string) => {
-    const entry = store.history.find((item) => item.id === id)
-    if (!entry) return { ok: false, error: 'That dictation no longer exists.' }
-    return engine.paste(entry.text)
-  })
-  ipcMain.handle('history:flag', (_, id: string, flagged: boolean) => {
-    store.updateHistory(id, { flagged })
-    sendHub('refresh')
-  })
-
-  ipcMain.handle('dictionary:add-pack', () => {
-    const added = store.addDictionaryPack(DEVELOPER_VOCABULARY)
-    sendHub('refresh')
-    return added
-  })
-  ipcMain.handle('dictionary:add', (_, word: string, correction?: string) => {
-    const entry = store.addDictionary(word, correction)
-    sendHub('refresh')
-    return entry
-  })
-  ipcMain.handle('dictionary:update', (_, id: string, patch) => {
-    const entry = store.updateDictionary(id, patch)
-    sendHub('refresh')
-    return entry
-  })
-  ipcMain.handle('dictionary:delete', (_, id: string) => {
-    store.deleteDictionary(id)
-    sendHub('refresh')
-  })
-
-  ipcMain.handle('snippet:add', (_, trigger: string, content: string) => {
-    const snippet = store.addSnippet(trigger, content)
-    sendHub('refresh')
-    return snippet
-  })
-  ipcMain.handle('snippet:update', (_, id: string, patch) => {
-    const snippet = store.updateSnippet(id, patch)
-    sendHub('refresh')
-    return snippet
-  })
-  ipcMain.handle('snippet:delete', (_, id: string) => {
-    store.deleteSnippet(id)
-    sendHub('refresh')
-  })
-
-  ipcMain.handle('suggestion:accept', (_, id: string) => {
-    store.acceptSuggestion(id)
-    sendHub('refresh')
-  })
-  ipcMain.handle('suggestion:dismiss', (_, id: string) => {
-    store.dismissSuggestion(id)
-    sendHub('refresh')
-  })
-
-  ipcMain.handle('dictation:toggle', (_, insert?: boolean) => engine.toggle(insert !== false))
-  ipcMain.handle('dictation:cancel', () => engine.cancel())
-
-
-  ipcMain.handle('app:open-external', async (_, url: string) => {
-    if (/^https?:/i.test(url)) await shell.openExternal(url)
-  })
-  ipcMain.handle('app:export', async () => {
-    const options = {
-      title: 'Export reverseuno data',
-      defaultPath: join(homedir(), `reverseuno-export-${new Date().toISOString().slice(0, 10)}.json`),
-      filters: [{ name: 'JSON', extensions: ['json'] }]
-    }
-    const result = hub
-      ? await dialog.showSaveDialog(hub, options)
-      : await dialog.showSaveDialog(options)
-    if (result.canceled || !result.filePath) return null
-    writeFileSync(result.filePath, store.exportJson(), { mode: 0o600 })
-    return result.filePath
-  })
-  ipcMain.handle('app:set-login', (_, enabled: boolean) => {
-    store.updateSettings({ system: { launchAtLogin: enabled } })
-    setLogin(enabled)
-    sendHub('refresh')
-  })
-  ipcMain.handle('app:quit', () => quitApp())
-
-  ipcMain.on('window:minimize', () => hub?.minimize())
-  ipcMain.on('window:maximize', () => {
-    if (!hub) return
-    if (hub.isMaximized()) hub.unmaximize()
-    else hub.maximize()
-  })
-  ipcMain.on('window:close', () => {
-    hub?.hide()
-    void ensureTray()
-  })
-  ipcMain.handle('window:open-hub', (_, page?: string) => showHub(page || 'home'))
-
   ipcMain.on('capture:ready', (_, data: { sampleRate: number }) => void engine.onCaptureReady(data))
   ipcMain.on('audio:chunk', (_, buffer: ArrayBuffer, rms: number) => {
     engine.onChunk(Buffer.from(buffer), rms)
@@ -595,176 +344,48 @@ function registerIpc(): void {
   })
 }
 
-function updateTrayMenu(): void {
-  if (!tray || tray.isDestroyed()) return
-  const isVisible = Boolean(hub && !hub.isDestroyed() && hub.isVisible())
-  const busy = trayBucket !== 'idle'
-  const lastEntry = store?.history[0]
-  const contextMenu = Menu.buildFromTemplate([
-    {
-      label: isVisible ? 'Hide reverseuno' : 'Open reverseuno',
-      click: () => {
-        if (isVisible) hub?.hide()
-        else showHub('home')
-      }
-    },
-    { type: 'separator' },
-    { label: { idle: 'Idle', listening: 'Listening…', processing: 'Working…' }[trayBucket], enabled: false },
-    // Mouse-started sessions have no key release, so this item starts and stops.
-    {
-      label: trayBucket === 'listening' ? 'Stop and paste' : 'Start dictation',
-      enabled: trayBucket !== 'processing',
-      click: () => void engine?.toggle(true)
-    },
-    { label: 'Cancel dictation', enabled: busy, click: () => void engine?.cancel() },
-    {
-      label: 'Copy last dictation',
-      enabled: Boolean(lastEntry),
-      click: () => {
-        if (lastEntry) void copyToClipboard(lastEntry.text)
-      }
-    },
-    { type: 'separator' },
-    { label: 'Settings', click: () => showHub('settings') },
-    { label: 'Quit', click: () => quitApp() }
-  ])
-  tray.setContextMenu(contextMenu)
-}
-
-function createTray(): boolean {
-  const iconPath = resourcePath('tray.png')
-  if (!existsSync(iconPath)) {
-    log.warn('[tray] icon not found at', iconPath)
-    return false
-  }
-  try {
-    if (tray && !tray.isDestroyed()) {
-      tray.destroy()
-    }
-    tray = new Tray(nativeImage.createFromPath(iconPath))
-    tray.setToolTip('reverseuno — Right Super to dictate')
-    updateTrayMenu()
-    tray.on('click', () => {
-      if (hub && !hub.isDestroyed() && hub.isVisible()) {
-        hub.hide()
-      } else {
-        showHub('home')
-      }
-    })
-    log.info('[tray] created successfully')
-    return true
-  } catch (error) {
-    log.warn('[tray] failed to create tray', String(error))
-    tray = null
-    return false
-  }
-}
-
-type TrayStatus = 'registered' | 'missing' | 'no-watcher'
-
-// Waybar hosts the StatusNotifierWatcher on Omarchy. If it starts after us, or
-// restarts, our item is gone and the tray has to be recreated. If there is no
-// watcher at all, recreating is pointless; wait for one to appear.
-function trayStatus(): Promise<TrayStatus> {
-  return new Promise((resolve) => {
-    const proc = spawn('busctl', [
-      '--user',
-      'get-property',
-      'org.kde.StatusNotifierWatcher',
-      '/StatusNotifierWatcher',
-      'org.kde.StatusNotifierWatcher',
-      'RegisteredStatusNotifierItems'
-    ])
-    let out = ''
-    // A hung busctl must not wedge every later ensureTray() call behind this promise.
-    const timer = setTimeout(() => {
-      proc.kill('SIGKILL')
-      resolve('registered')
-    }, 2000)
-    proc.stdout.on('data', (chunk) => {
-      out += chunk.toString()
-    })
-    proc.on('close', (code) => {
-      clearTimeout(timer)
-      if (code !== 0) resolve('no-watcher')
-      else resolve(out.includes(`StatusNotifierItem-${process.pid}-`) ? 'registered' : 'missing')
-    })
-    // No busctl: cannot tell, so leave the tray alone.
-    proc.on('error', () => {
-      clearTimeout(timer)
-      resolve('registered')
-    })
-  })
-}
-
-let trayCheck: Promise<void> | null = null
-
-function ensureTray(): Promise<void> {
-  // Coalesce: the hub close handler and the timer can both ask at once.
-  trayCheck ??= (async () => {
-    if (!tray || tray.isDestroyed()) {
-      createTray()
-      return
-    }
-    if ((await trayStatus()) === 'missing') {
-      log.info('[tray] item missing from the watcher; recreating')
-      createTray()
-    }
-  })().finally(() => {
-    trayCheck = null
-  })
-  return trayCheck
-}
-
 async function start(): Promise<void> {
   createWindows()
   createEngine()
+  api = buildApi({
+    store,
+    secrets,
+    engine: () => engine,
+    bootstrap,
+    sendHub,
+    setLogin,
+    requestDevices,
+    quitApp,
+    openExternal: (url) => shell.openExternal(url),
+    saveDialog: async (options) => {
+      const result = await dialog.showSaveDialog(options)
+      return result.canceled || !result.filePath ? null : result.filePath
+    }
+  })
   registerIpc()
   createControl()
-  createTray()
-  setInterval(() => void ensureTray(), 10_000).unref()
-  const stopThemeWatch = watchOmarchyTheme((palette) => {
-    log.info('[theme] omarchy theme changed', { name: palette?.name ?? null })
-    sendHub('theme', palette)
-  })
-  app.once('will-quit', stopThemeWatch)
 
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
     callback(permission === 'media')
   })
   session.defaultSession.setPermissionCheckHandler((_wc, permission) => permission === 'media')
 
-  hub?.webContents.on('did-finish-load', () => {
-    const page = pendingPage || process.env.REVERSEUNO_OPEN_PAGE || 'home'
-    hub?.webContents.send('hub:page', page)
-  })
-
   capture?.webContents.on('did-finish-load', () => {
     captureLoaded = true
     for (const item of captureQueue.splice(0)) capture?.webContents.send(item.channel, item.payload)
   })
 
-  loadPage(hub!, 'hub')
-  loadPage(overlay!, 'overlay')
   loadPage(capture!, 'capture')
 
   if (store.settings.overlay.showAtRest) {
-    setTimeout(() => {
-      sendOverlay({ state: 'idle' })
-      showOverlay()
-      setOverlayMouse(true)
-    }, 600)
+    setTimeout(() => showOverlay(), 600)
   }
 
   const hidden = process.argv.includes('--hidden')
-  if (!hidden && store.settings.system.openHubOnStart) {
-    hub?.once('ready-to-show', () => showHub(process.env.REVERSEUNO_OPEN_PAGE || 'home'))
-    setTimeout(() => {
-      if (hub && !hub.isVisible()) showHub(process.env.REVERSEUNO_OPEN_PAGE || 'home')
-    }, 1200)
-  }
+  if (!hidden && store.settings.system.openHubOnStart) showHub(process.env.REVERSEUNO_OPEN_PAGE || 'history')
+  else ui.ensureRunning()
 
-  log.info('[app] ready', { version: app.getVersion(), userData, dev: isDev })
+  log.info('[app] ready', { version: app.getVersion(), userData, dev: isDev, ui: uiBinary ?? 'none' })
 }
 
 if (gotLock) {
@@ -779,11 +400,8 @@ app.on('window-all-closed', () => {
   // Stay alive: Right Super is the primary surface, the hub is optional.
 })
 
-app.on('before-quit', () => {
-  isQuitting = true
-})
-
 app.on('will-quit', () => {
+  ui.stop()
   void engine?.dispose()
   void control?.stop()
   try {

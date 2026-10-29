@@ -1,0 +1,60 @@
+# Builds the working tree's committed HEAD: run `makepkg` in packaging/ of a checkout,
+# or point REVERSEUNO_REPO at another clone.
+pkgname=reverseuno
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Push-to-talk dictation for Hyprland: hold Right Super, speak, release'
+arch=(x86_64)
+url='https://github.com/nodaysidle/reverseuno'
+license=(MIT)
+# Engine: Arch's electron44 (package.json pins ^44.9), CLI: jq + curl, paste: wtype, wl-clipboard,
+# hyprctl. Qt app: ldd of reverseuno-ui, plus qt6-wayland for the Wayland platform plugin.
+depends=(electron44 jq curl wtype wl-clipboard hyprland
+         qt6-base qt6-declarative qt6-wayland layer-shell-qt)
+optdepends=('python: scripts/install-hyprland.py, the Right Super binds'
+            'libnotify: desktop notice when a paste fails (notify-send)')
+makedepends=(git nodejs npm)
+checkdepends=(python)
+source=("$pkgname::git+file://${REVERSEUNO_REPO:-$startdir/..}")
+sha256sums=(SKIP)
+
+build() {
+  cd "$pkgname"
+  # The system electron44 runs the app; skip the npm one's ~100 MB download.
+  export ELECTRON_SKIP_BINARY_DOWNLOAD=1
+  npm ci --prefer-offline --no-audit --no-fund
+  npm run build
+  cd qt
+  qmake6
+  make
+}
+
+check() {
+  cd "$pkgname"
+  npx vitest run
+  cd qt
+  QT_QPA_PLATFORM=offscreen make check
+}
+
+package() {
+  cd "$pkgname"
+  npm prune --omit=dev --no-audit --no-fund
+  # vite/vitest caches from build() and check(), and scope dirs prune emptied
+  rm -rf node_modules/.vite node_modules/.vitest-cache
+  find node_modules -type d -empty -delete
+
+  # Same layout as a checkout, so the engine finds <app>/qt/reverseuno-ui and the
+  # Qt app finds qml/ next to its binary.
+  local app="$pkgdir/usr/lib/$pkgname"
+  install -d "$app/qt"
+  cp -r out node_modules package.json "$app/"
+  install -m755 qt/reverseuno-ui "$app/qt/reverseuno-ui"
+  cp -r qt/qml "$app/qt/qml"
+  install -Dm755 scripts/install-hyprland.py "$app/scripts/install-hyprland.py"
+
+  install -Dm755 bin/reverseuno "$pkgdir/usr/bin/reverseuno"
+  ln -s "/usr/lib/$pkgname/qt/reverseuno-ui" "$pkgdir/usr/bin/reverseuno-ui"
+  install -Dm644 packaging/reverseuno.desktop "$pkgdir/usr/share/applications/reverseuno.desktop"
+  install -Dm644 resources/icon.png "$pkgdir/usr/share/icons/hicolor/512x512/apps/reverseuno.png"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
