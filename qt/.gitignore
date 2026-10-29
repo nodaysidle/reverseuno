@@ -1,0 +1,11 @@
+Makefile
+Makefile.*
+*.o
+moc_*
+qrc_*
+.qmake.stash
+.qmake.cache
+reverseuno-ui
+tst_theme
+tst_engineclient
+tst_*.o
