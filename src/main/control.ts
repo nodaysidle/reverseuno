@@ -5,7 +5,10 @@ import { dirname, join } from 'node:path'
 import { CONTROL_PORT } from '@shared/defaults'
 import { log } from './logger'
 
+export type ApiTable = Record<string, (...args: unknown[]) => Promise<unknown> | unknown>
+
 export interface ControlHandlers {
+  rpc: ApiTable
   state(): unknown
   start(insert: boolean): Promise<unknown>
   stop(): Promise<unknown>
@@ -129,6 +132,12 @@ export class ControlServer {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1')
     const path = url.pathname.replace(/\/+$/, '') || '/'
 
+    // Browsers always send Origin on cross-site requests; the CLI and Qt client never do.
+    if (req.headers.origin !== undefined) {
+      this.send(res, 403, { ok: false, error: 'forbidden' })
+      return
+    }
+
     if (path === '/health' && req.method === 'GET') {
       this.send(res, 200, { ok: true, app: 'reverseuno', pid: process.pid })
       return
@@ -158,6 +167,21 @@ export class ControlServer {
     const body = await this.body(req)
     // One line per CLI call, so a log shows whether the key binds fired.
     log.info('[control] request', { path })
+
+    if (path.startsWith('/rpc/')) {
+      const method = path.slice('/rpc/'.length)
+      if (!Object.hasOwn(this.handlers.rpc, method)) {
+        this.send(res, 404, { ok: false, error: 'unknown method' })
+        return
+      }
+      try {
+        const args = Array.isArray(body.args) ? body.args : []
+        this.send(res, 200, { ok: true, result: (await this.handlers.rpc[method]!(...args)) ?? null })
+      } catch (error) {
+        this.send(res, 400, { ok: false, error: String(error) })
+      }
+      return
+    }
 
     switch (path) {
       case '/start':

@@ -1,0 +1,172 @@
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+import { writeFileSync } from 'node:fs'
+import { DEVELOPER_VOCABULARY } from '@shared/vocabulary'
+import type { Bootstrap, DeepPartial, ModelKind, ProviderTestResult, SecretName, Settings } from '@shared/types'
+import type { ApiTable } from './control'
+import type { DictationEngine } from './dictation'
+import type { Store } from './store'
+import type { Secrets } from './secrets'
+import { validateDeepgramKey } from './stt/deepgram'
+import { validateAnthropicKey, validateOpenRouterKey } from './format'
+import { listOpenRouterModels } from './models'
+import { copyToClipboard } from './paste'
+
+export interface ApiDeps {
+  store: Store
+  secrets: Secrets
+  engine: () => DictationEngine
+  bootstrap: () => Bootstrap
+  sendHub: (channel: string) => void
+  setLogin: (enabled: boolean) => void
+  requestDevices: () => Promise<unknown>
+  quitApp: () => void
+  openExternal: (url: string) => Promise<void>
+  saveDialog: (options: {
+    title: string
+    defaultPath: string
+    filters: { name: string; extensions: string[] }[]
+  }) => Promise<string | null>
+}
+
+// Method names are those of ReverseunoApi; Electron IPC and the control server share these bodies.
+export function buildApi(deps: ApiDeps): ApiTable {
+  const { store, secrets, sendHub, setLogin } = deps
+  const engine = deps.engine
+  return {
+    bootstrap: () => deps.bootstrap(),
+
+    updateSettings: (patch) => {
+      const before = store.settings.system.launchAtLogin
+      const settings = store.updateSettings(patch as DeepPartial<Settings>)
+      if (settings.system.launchAtLogin !== before) setLogin(settings.system.launchAtLogin)
+      sendHub('refresh')
+      return settings
+    },
+
+    setSecret: (name, value) => {
+      secrets.set(name as SecretName, value as string)
+      sendHub('refresh')
+      return secrets.allStatuses()
+    },
+    clearSecret: (name) => {
+      secrets.clear(name as SecretName)
+      sendHub('refresh')
+      return secrets.allStatuses()
+    },
+
+    testProvider: async (name): Promise<ProviderTestResult> => {
+      const started = Date.now()
+      if (name === 'anthropic') {
+        const result = await validateAnthropicKey(secrets.get('anthropic'))
+        return { ...result, latencyMs: Date.now() - started }
+      }
+      if (name === 'deepgram') {
+        const result = await validateDeepgramKey(secrets.get('deepgram'))
+        return { ...result, latencyMs: Date.now() - started }
+      }
+      const result = await validateOpenRouterKey(secrets.get('openrouter'), store.settings.format.baseUrl)
+      return { ...result, latencyMs: Date.now() - started }
+    },
+
+    listDevices: () => deps.requestDevices(),
+    listModels: (kind) =>
+      listOpenRouterModels((kind as ModelKind) === 'stt' ? 'stt' : 'format', store.settings.format.baseUrl),
+
+    historyUpdate: (id, text) => {
+      const result = store.recordEdit(id as string, text as string)
+      sendHub('refresh')
+      return result
+    },
+    historyDelete: (id) => {
+      store.deleteHistory(id as string)
+      sendHub('refresh')
+    },
+    historyClear: () => {
+      store.clearHistory()
+      sendHub('refresh')
+    },
+    historyCopy: async (id) => {
+      const entry = store.history.find((item) => item.id === id)
+      if (!entry) return { ok: false, error: 'That dictation no longer exists.' }
+      const ok = await copyToClipboard(entry.text)
+      return ok ? { ok } : { ok, error: 'Could not write to the clipboard.' }
+    },
+    historyInsert: async (id) => {
+      const entry = store.history.find((item) => item.id === id)
+      if (!entry) return { ok: false, error: 'That dictation no longer exists.' }
+      return engine().paste(entry.text)
+    },
+    historyFlag: (id, flagged) => {
+      store.updateHistory(id as string, { flagged: flagged as boolean })
+      sendHub('refresh')
+    },
+
+    dictionaryAddPack: () => {
+      const added = store.addDictionaryPack(DEVELOPER_VOCABULARY)
+      sendHub('refresh')
+      return added
+    },
+    dictionaryAdd: (word, correction) => {
+      const entry = store.addDictionary(word as string, correction as string | undefined)
+      sendHub('refresh')
+      return entry
+    },
+    dictionaryUpdate: (id, patch) => {
+      const entry = store.updateDictionary(id as string, patch as never)
+      sendHub('refresh')
+      return entry
+    },
+    dictionaryDelete: (id) => {
+      store.deleteDictionary(id as string)
+      sendHub('refresh')
+    },
+
+    snippetAdd: (trigger, content) => {
+      const snippet = store.addSnippet(trigger as string, content as string)
+      sendHub('refresh')
+      return snippet
+    },
+    snippetUpdate: (id, patch) => {
+      const snippet = store.updateSnippet(id as string, patch as never)
+      sendHub('refresh')
+      return snippet
+    },
+    snippetDelete: (id) => {
+      store.deleteSnippet(id as string)
+      sendHub('refresh')
+    },
+
+    suggestionAccept: (id) => {
+      store.acceptSuggestion(id as string)
+      sendHub('refresh')
+    },
+    suggestionDismiss: (id) => {
+      store.dismissSuggestion(id as string)
+      sendHub('refresh')
+    },
+
+    dictationToggle: (insert) => engine().toggle(insert !== false),
+    dictationCancel: () => engine().cancel(),
+
+    openExternal: async (url) => {
+      if (/^https?:/i.test(url as string)) await deps.openExternal(url as string)
+    },
+    exportData: async () => {
+      const filePath = await deps.saveDialog({
+        title: 'Export reverseuno data',
+        defaultPath: join(homedir(), `reverseuno-export-${new Date().toISOString().slice(0, 10)}.json`),
+        filters: [{ name: 'JSON', extensions: ['json'] }]
+      })
+      if (!filePath) return null
+      writeFileSync(filePath, store.exportJson(), { mode: 0o600 })
+      return filePath
+    },
+    setLogin: (enabled) => {
+      store.updateSettings({ system: { launchAtLogin: enabled as boolean } })
+      setLogin(enabled as boolean)
+      sendHub('refresh')
+    },
+    quit: () => deps.quitApp()
+  }
+}

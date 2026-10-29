@@ -15,15 +15,9 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { CONTROL_PORT } from '@shared/defaults'
-import { DEVELOPER_VOCABULARY } from '@shared/vocabulary'
 import type {
   AudioDevice,
   Bootstrap,
-  DeepPartial,
-  ModelKind,
-  ProviderTestResult,
-  SecretName,
-  Settings,
   StateEvent
 } from '@shared/types'
 import { statsFromHistory } from '@shared/stats'
@@ -31,12 +25,10 @@ import { DictationEngine } from './dictation'
 import { Store } from './store'
 import { Secrets } from './secrets'
 import { initLogger, getLogPath, log } from './logger'
-import { ControlServer } from './control'
+import { ControlServer, type ApiTable } from './control'
+import { buildApi } from './api'
 import { copyToClipboard, notify, placeOwnWindow } from './paste'
-import { validateDeepgramKey } from './stt/deepgram'
-import { validateAnthropicKey, validateOpenRouterKey } from './format'
 import { seedDemo } from './demo'
-import { listOpenRouterModels } from './models'
 import { readOmarchyTheme, watchOmarchyTheme } from './theme'
 
 const isDev = !app.isPackaged
@@ -87,6 +79,7 @@ let tray: Tray | null = null
 let isQuitting = false
 let engine: DictationEngine
 let control: ControlServer
+let api: ApiTable
 let captureLoaded = false
 let pendingPage = ''
 const captureQueue: { channel: string; payload?: unknown }[] = []
@@ -400,6 +393,7 @@ function requestDevices(): Promise<AudioDevice[]> {
 
 function createControl(): void {
   control = new ControlServer(userData, {
+    rpc: api,
     state: () => engine.getState(),
     start: (insert) => engine.start(insert),
     stop: () => engine.stop(),
@@ -425,147 +419,42 @@ function createControl(): void {
   void control.start().catch((error) => log.error('[control] failed to start', String(error)))
 }
 
+const IPC_METHODS: Record<string, string> = {
+  bootstrap: 'bootstrap',
+  'settings:update': 'updateSettings',
+  'secret:set': 'setSecret',
+  'secret:clear': 'clearSecret',
+  'provider:test': 'testProvider',
+  'devices:list': 'listDevices',
+  'models:list': 'listModels',
+  'history:update': 'historyUpdate',
+  'history:delete': 'historyDelete',
+  'history:clear': 'historyClear',
+  'history:copy': 'historyCopy',
+  'history:insert': 'historyInsert',
+  'history:flag': 'historyFlag',
+  'dictionary:add-pack': 'dictionaryAddPack',
+  'dictionary:add': 'dictionaryAdd',
+  'dictionary:update': 'dictionaryUpdate',
+  'dictionary:delete': 'dictionaryDelete',
+  'snippet:add': 'snippetAdd',
+  'snippet:update': 'snippetUpdate',
+  'snippet:delete': 'snippetDelete',
+  'suggestion:accept': 'suggestionAccept',
+  'suggestion:dismiss': 'suggestionDismiss',
+  'dictation:toggle': 'dictationToggle',
+  'dictation:cancel': 'dictationCancel',
+  'app:open-external': 'openExternal',
+  'app:export': 'exportData',
+  'app:set-login': 'setLogin',
+  'app:quit': 'quit'
+}
+
 function registerIpc(): void {
-  ipcMain.handle('bootstrap', () => bootstrap())
+  for (const [channel, method] of Object.entries(IPC_METHODS)) {
+    ipcMain.handle(channel, (_, ...args) => api[method]!(...args))
+  }
   ipcMain.handle('state:get', () => engine.getState())
-
-  ipcMain.handle('settings:update', (_, patch: DeepPartial<Settings>) => {
-    const before = store.settings.system.launchAtLogin
-    const settings = store.updateSettings(patch)
-    if (settings.system.launchAtLogin !== before) setLogin(settings.system.launchAtLogin)
-    sendHub('refresh')
-    return settings
-  })
-
-  ipcMain.handle('secret:set', (_, name: SecretName, value: string) => {
-    secrets.set(name, value)
-    sendHub('refresh')
-    return secrets.allStatuses()
-  })
-  ipcMain.handle('secret:clear', (_, name: SecretName) => {
-    secrets.clear(name)
-    sendHub('refresh')
-    return secrets.allStatuses()
-  })
-
-  ipcMain.handle('provider:test', async (_, name: SecretName): Promise<ProviderTestResult> => {
-    const started = Date.now()
-    if (name === 'anthropic') {
-      const result = await validateAnthropicKey(secrets.get('anthropic'))
-      return { ...result, latencyMs: Date.now() - started }
-    }
-    if (name === 'deepgram') {
-      const result = await validateDeepgramKey(secrets.get('deepgram'))
-      return { ...result, latencyMs: Date.now() - started }
-    }
-    const result = await validateOpenRouterKey(secrets.get('openrouter'), store.settings.format.baseUrl)
-    return { ...result, latencyMs: Date.now() - started }
-  })
-
-  ipcMain.handle('devices:list', () => requestDevices())
-  ipcMain.handle('models:list', (_, kind: ModelKind) =>
-    listOpenRouterModels(kind === 'stt' ? 'stt' : 'format', store.settings.format.baseUrl)
-  )
-
-  ipcMain.handle('history:update', (_, id: string, text: string) => {
-    const result = store.recordEdit(id, text)
-    sendHub('refresh')
-    return result
-  })
-  ipcMain.handle('history:delete', (_, id: string) => {
-    store.deleteHistory(id)
-    sendHub('refresh')
-  })
-  ipcMain.handle('history:clear', () => {
-    store.clearHistory()
-    sendHub('refresh')
-  })
-  ipcMain.handle('history:copy', async (_, id: string) => {
-    const entry = store.history.find((item) => item.id === id)
-    if (!entry) return { ok: false, error: 'That dictation no longer exists.' }
-    const ok = await copyToClipboard(entry.text)
-    return ok ? { ok } : { ok, error: 'Could not write to the clipboard.' }
-  })
-  ipcMain.handle('history:insert', async (_, id: string) => {
-    const entry = store.history.find((item) => item.id === id)
-    if (!entry) return { ok: false, error: 'That dictation no longer exists.' }
-    return engine.paste(entry.text)
-  })
-  ipcMain.handle('history:flag', (_, id: string, flagged: boolean) => {
-    store.updateHistory(id, { flagged })
-    sendHub('refresh')
-  })
-
-  ipcMain.handle('dictionary:add-pack', () => {
-    const added = store.addDictionaryPack(DEVELOPER_VOCABULARY)
-    sendHub('refresh')
-    return added
-  })
-  ipcMain.handle('dictionary:add', (_, word: string, correction?: string) => {
-    const entry = store.addDictionary(word, correction)
-    sendHub('refresh')
-    return entry
-  })
-  ipcMain.handle('dictionary:update', (_, id: string, patch) => {
-    const entry = store.updateDictionary(id, patch)
-    sendHub('refresh')
-    return entry
-  })
-  ipcMain.handle('dictionary:delete', (_, id: string) => {
-    store.deleteDictionary(id)
-    sendHub('refresh')
-  })
-
-  ipcMain.handle('snippet:add', (_, trigger: string, content: string) => {
-    const snippet = store.addSnippet(trigger, content)
-    sendHub('refresh')
-    return snippet
-  })
-  ipcMain.handle('snippet:update', (_, id: string, patch) => {
-    const snippet = store.updateSnippet(id, patch)
-    sendHub('refresh')
-    return snippet
-  })
-  ipcMain.handle('snippet:delete', (_, id: string) => {
-    store.deleteSnippet(id)
-    sendHub('refresh')
-  })
-
-  ipcMain.handle('suggestion:accept', (_, id: string) => {
-    store.acceptSuggestion(id)
-    sendHub('refresh')
-  })
-  ipcMain.handle('suggestion:dismiss', (_, id: string) => {
-    store.dismissSuggestion(id)
-    sendHub('refresh')
-  })
-
-  ipcMain.handle('dictation:toggle', (_, insert?: boolean) => engine.toggle(insert !== false))
-  ipcMain.handle('dictation:cancel', () => engine.cancel())
-
-
-  ipcMain.handle('app:open-external', async (_, url: string) => {
-    if (/^https?:/i.test(url)) await shell.openExternal(url)
-  })
-  ipcMain.handle('app:export', async () => {
-    const options = {
-      title: 'Export reverseuno data',
-      defaultPath: join(homedir(), `reverseuno-export-${new Date().toISOString().slice(0, 10)}.json`),
-      filters: [{ name: 'JSON', extensions: ['json'] }]
-    }
-    const result = hub
-      ? await dialog.showSaveDialog(hub, options)
-      : await dialog.showSaveDialog(options)
-    if (result.canceled || !result.filePath) return null
-    writeFileSync(result.filePath, store.exportJson(), { mode: 0o600 })
-    return result.filePath
-  })
-  ipcMain.handle('app:set-login', (_, enabled: boolean) => {
-    store.updateSettings({ system: { launchAtLogin: enabled } })
-    setLogin(enabled)
-    sendHub('refresh')
-  })
-  ipcMain.handle('app:quit', () => quitApp())
 
   ipcMain.on('window:minimize', () => hub?.minimize())
   ipcMain.on('window:maximize', () => {
@@ -719,6 +608,21 @@ function ensureTray(): Promise<void> {
 async function start(): Promise<void> {
   createWindows()
   createEngine()
+  api = buildApi({
+    store,
+    secrets,
+    engine: () => engine,
+    bootstrap,
+    sendHub,
+    setLogin,
+    requestDevices,
+    quitApp,
+    openExternal: (url) => shell.openExternal(url),
+    saveDialog: async (options) => {
+      const result = hub ? await dialog.showSaveDialog(hub, options) : await dialog.showSaveDialog(options)
+      return result.canceled || !result.filePath ? null : result.filePath
+    }
+  })
   registerIpc()
   createControl()
   createTray()
