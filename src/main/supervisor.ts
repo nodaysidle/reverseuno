@@ -162,14 +162,18 @@ export interface UiLookup {
   exists: (file: string) => boolean
 }
 
-/** REVERSEUNO_UI, then next to the package, then PATH, then the dev build; null disables the UI. */
+/**
+ * REVERSEUNO_UI, then next to the package, then `<app>/qt` (a checkout, or the Arch package's
+ * /usr/lib/reverseuno), then PATH; null disables the UI. `<app>/qt` beats PATH so an installed
+ * package never shadows a checkout's own build.
+ */
 export function findUiBinary(o: UiLookup): string | null {
   if (o.env.REVERSEUNO_NO_UI === '1') return null
   const candidates = [
     o.env.REVERSEUNO_UI,
     o.packaged ? join(o.execDir, 'reverseuno-ui') : undefined,
-    ...o.path.split(delimiter).filter(Boolean).map((dir) => join(dir, 'reverseuno-ui')),
-    o.packaged ? undefined : join(o.appPath, 'qt', 'reverseuno-ui')
+    o.packaged ? undefined : join(o.appPath, 'qt', 'reverseuno-ui'),
+    ...o.path.split(delimiter).filter(Boolean).map((dir) => join(dir, 'reverseuno-ui'))
   ]
   return candidates.find((file): file is string => Boolean(file) && o.exists(file!)) ?? null
 }

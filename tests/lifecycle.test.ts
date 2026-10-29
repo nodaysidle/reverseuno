@@ -162,14 +162,15 @@ describe('findUiBinary', () => {
     expect(findUiBinary({ ...base, env: { REVERSEUNO_NO_UI: '1', REVERSEUNO_UI: '/x' }, exists: () => true })).toBeNull()
   })
 
-  it('prefers REVERSEUNO_UI, then next to the package, then PATH, then the dev build', () => {
-    const all = ['/x/ui', '/opt/reverseuno/reverseuno-ui', '/bin/reverseuno-ui', '/repo/qt/reverseuno-ui']
+  it('prefers REVERSEUNO_UI, then next to the package, then the app dir, then PATH', () => {
+    const all = ['/x/ui', '/opt/reverseuno/reverseuno-ui', '/repo/qt/reverseuno-ui', '/bin/reverseuno-ui']
     expect(findUiBinary({ ...base, env: { REVERSEUNO_UI: '/x/ui' }, exists: exists(all) })).toBe('/x/ui')
     expect(findUiBinary({ ...base, packaged: true, env: {}, exists: exists(all) })).toBe(
       '/opt/reverseuno/reverseuno-ui'
     )
-    expect(findUiBinary({ ...base, env: {}, exists: exists(all.slice(2)) })).toBe('/bin/reverseuno-ui')
-    expect(findUiBinary({ ...base, env: {}, exists: exists(all.slice(3)) })).toBe('/repo/qt/reverseuno-ui')
+    // An installed package on PATH does not shadow the checkout's own build.
+    expect(findUiBinary({ ...base, env: {}, exists: exists(all.slice(2)) })).toBe('/repo/qt/reverseuno-ui')
+    expect(findUiBinary({ ...base, env: {}, exists: exists(all.slice(3)) })).toBe('/bin/reverseuno-ui')
     expect(findUiBinary({ ...base, env: {}, exists: () => false })).toBeNull()
   })
 })

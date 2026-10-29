@@ -44,6 +44,8 @@ int main(int argc, char *argv[])
     }
 
     QGuiApplication app(argc, argv);
+    // The Hub's Wayland app_id: reverseuno.desktop's icon and the Hyprland Hub rule key on it.
+    QGuiApplication::setDesktopFileName("reverseuno");
     app.setQuitOnLastWindowClosed(false); // closing the Hub only hides it
     Theme theme;
     EngineClient engine;

@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
-# Install the local CLI, desktop entry and Right Super Hyprland bind.
+# Build the Qt windows, install the local CLI, desktop entry and Right Super Hyprland bind.
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN_DIR="$HOME/.local/bin"
 CLI="$BIN_DIR/reverseuno"
 ELECTRON="$REPO_DIR/node_modules/electron/dist/electron"
+
+# The engine starts <repo>/qt/reverseuno-ui itself (supervisor.ts), so it needs no PATH entry.
+echo "building qt/ (reverseuno-ui)"
+(cd "$REPO_DIR/qt" && qmake6 && make -j"$(nproc)")
 
 chmod +x "$REPO_DIR/bin/reverseuno"
 mkdir -p "$BIN_DIR"
@@ -31,6 +35,6 @@ python3 "$REPO_DIR/scripts/install-omarchy-menu.py"
 
 echo
 echo "Next:"
-echo "  1. npm run build"
+echo "  1. npm run build        # the engine; it brings up $REPO_DIR/qt/reverseuno-ui"
 echo "  2. npm start            # or launch reverseuno from your app menu"
 echo "  3. hold Right Super and speak"

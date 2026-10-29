@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install or update reverseuno's Hyprland binds and window rules.
+"""Install or update reverseuno's Hyprland binds, Hub window rule and Overlay layer rule.
 
 Only touches ~/.config/hypr/bindings.lua and keeps a timestamped backup. The
 reverseuno block lives between marker comments, so running this again replaces
@@ -17,7 +17,9 @@ from pathlib import Path
 
 HOME = Path.home()
 BINDINGS = HOME / ".config/hypr/bindings.lua"
-CLI = HOME / ".local/bin/reverseuno"
+LOCAL_CLI = HOME / ".local/bin/reverseuno"
+# install-local.sh links ~/.local/bin/reverseuno; the Arch package installs /usr/bin/reverseuno.
+CLI = LOCAL_CLI if LOCAL_CLI.exists() else Path(shutil.which("reverseuno") or LOCAL_CLI)
 
 BEGIN = "-- >>> reverseuno (managed by scripts/install-hyprland.py)"
 END = "-- <<< reverseuno"
@@ -39,23 +41,14 @@ def block() -> list[str]:
         f'o.bind("SUPER + Super_R", "reverseuno release (super held)", "{cli} stop", {{ release = true }})',
         f'o.bind("SUPER + Delete", "reverseuno cancel", "{cli} cancel")',
         "",
-        "-- The overlay never takes focus, so the paste lands where you were typing.",
-        'o.window({ class = "^reverseuno$", title = "^reverseuno-overlay$" }, {',
-        "  float = true,",
-        "  pin = true,",
-        "  no_focus = true,",
-        "  no_initial_focus = true,",
-        "  no_dim = true,",
-        "  border_size = 0,",
-        '  opacity = "1 1",',
-        "  size = { 500, 108 },",
-        '  move = { "(monitor_w-window_w)/2", "(monitor_h-window_h-18)" },',
-        "})",
+        "-- The Hub (Qt, app_id reverseuno) floats; its file dialogs keep their own titles.",
         'o.window({ class = "^reverseuno$", title = "^reverseuno$" }, {',
         "  float = true,",
         "  center = true,",
-        "  size = { 1180, 820 },",
+        "  size = { 980, 660 },",
         "})",
+        "-- The Overlay is a layer surface that never takes focus; show it without a fade.",
+        'hl.layer_rule({ match = { namespace = "^reverseuno-overlay$" }, no_anim = true, animation = "none" })',
         END,
     ]
 
