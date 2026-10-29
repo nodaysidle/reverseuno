@@ -21,6 +21,8 @@ export type ApiTable = Record<string, (...args: unknown[]) => Promise<unknown> |
 export interface ControlHandlers {
   rpc: ApiTable
   state(): unknown
+  /** Events a new /events client gets first (current state, overlay placement). */
+  snapshot(): ApiEvent[]
   start(insert: boolean): Promise<unknown>
   stop(): Promise<unknown>
   toggle(): Promise<unknown>
@@ -126,6 +128,7 @@ export class ControlServer {
   }
 
   publish(event: ApiEvent): void {
+    if (this.clients.size === 0) return
     this.write(`data: ${JSON.stringify(event)}\n\n`)
   }
 
@@ -146,6 +149,7 @@ export class ControlServer {
       Connection: 'keep-alive'
     })
     res.flushHeaders()
+    for (const event of this.handlers.snapshot()) res.write(`data: ${JSON.stringify(event)}\n\n`)
     this.clients.add(res)
     const drop = (): void => void this.clients.delete(res)
     res.on('close', drop)

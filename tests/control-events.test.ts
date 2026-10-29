@@ -2,12 +2,16 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { ControlServer, type ControlHandlers } from '../src/main/control'
+import { ControlServer, type ApiEvent, type ControlHandlers } from '../src/main/control'
 
 vi.mock('../src/main/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }))
 
+const snap: ApiEvent[] = [
+  { type: 'state', state: { state: 'idle', sounds: true } },
+  { type: 'overlay', visible: false, x: 1, y: 2, width: 3, height: 4 }
+]
 const dir = mkdtempSync(join(tmpdir(), 'ru-events-'))
-const server = new ControlServer(dir, { rpc: {}, state: () => ({}) } as unknown as ControlHandlers, 50)
+const server = new ControlServer(dir, { rpc: {}, state: () => ({}), snapshot: () => snap } as unknown as ControlHandlers, 50)
 let base = ''
 let token = ''
 
@@ -44,6 +48,16 @@ describe('GET /events', () => {
   it('with Origin is 403', async () => {
     const res = await fetch(`${base}/events`, { headers: { Authorization: `Bearer ${token}`, Origin: 'http://evil' } })
     expect(res.status).toBe(403)
+  })
+  it('a new client gets the snapshot first, in order, before published events', async () => {
+    const c = await open()
+    server.publish({ type: 'refresh' })
+    const buf = await c.until('"refresh"')
+    const at = ['"type":"state"', '"type":"overlay"', '"type":"refresh"'].map((t) => buf.indexOf(t))
+    expect(at[0]).toBeGreaterThanOrEqual(0)
+    expect(at[0]).toBeLessThan(at[1]!)
+    expect(at[1]).toBeLessThan(at[2]!)
+    c.close()
   })
   it('a client receives published events in order', async () => {
     const c = await open()

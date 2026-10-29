@@ -29,6 +29,8 @@ export interface EngineDeps {
   hideOverlay(): void
   setOverlayMouse(enabled: boolean): void
   sendOverlay(event: StateEvent): void
+  /** The same merged event the overlay gets, for the control API's event stream. */
+  publishState(event: StateEvent): void
   sendLevel(level: number): void
   sendHub(channel: string, payload?: unknown): void
   sendCapture(channel: string, payload?: unknown): void
@@ -87,6 +89,21 @@ export class DictationEngine {
 
   constructor(private readonly deps: EngineDeps) {}
 
+  /** One merge for everything that renders the overlay: the Electron window and the event stream. */
+  overlayEvent(event: StateEvent): StateEvent {
+    return {
+      ...event,
+      appClass: event.appClass ?? this.session?.appClass,
+      appTitle: event.appTitle ?? this.session?.appTitle,
+      language: event.language ?? this.session?.language,
+      startedAt: event.startedAt ?? this.session?.startedAt,
+      elapsedMs: event.elapsedMs ?? (this.session ? Date.now() - this.session.startedAt : undefined),
+      insert: event.insert ?? this.session?.insert,
+      source: event.source ?? this.session?.source,
+      sounds: this.deps.store.settings.overlay.sounds
+    }
+  }
+
   getState(): StateEvent {
     if (!this.session || this.state === 'idle') return this.lastEvent
     return {
@@ -103,17 +120,9 @@ export class DictationEngine {
   private setState(event: StateEvent): void {
     this.state = event.state
     this.lastEvent = event
-    this.deps.sendOverlay({
-      ...event,
-      appClass: event.appClass ?? this.session?.appClass,
-      appTitle: event.appTitle ?? this.session?.appTitle,
-      language: event.language ?? this.session?.language,
-      startedAt: event.startedAt ?? this.session?.startedAt,
-      elapsedMs: event.elapsedMs ?? (this.session ? Date.now() - this.session.startedAt : undefined),
-      insert: event.insert ?? this.session?.insert,
-      source: event.source ?? this.session?.source,
-      sounds: this.deps.store.settings.overlay.sounds
-    })
+    const merged = this.overlayEvent(event)
+    this.deps.sendOverlay(merged)
+    this.deps.publishState(merged)
     this.deps.sendHub('state', this.getState())
   }
 
@@ -128,7 +137,9 @@ export class DictationEngine {
       if (this.deps.store.settings.overlay.showAtRest) {
         this.state = 'idle'
         this.lastEvent = { state: 'idle' }
-        this.deps.sendOverlay(this.lastEvent)
+        const merged = this.overlayEvent(this.lastEvent)
+        this.deps.sendOverlay(merged)
+        this.deps.publishState(merged)
         this.deps.sendHub('state', this.lastEvent)
         this.deps.showOverlay()
         this.deps.setOverlayMouse(true)
@@ -137,6 +148,7 @@ export class DictationEngine {
         if (this.state !== 'listening') {
           this.state = 'idle'
           this.lastEvent = { state: 'idle' }
+          this.deps.publishState(this.overlayEvent(this.lastEvent))
           this.deps.sendHub('state', this.lastEvent)
         }
       }

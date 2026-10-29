@@ -39,11 +39,13 @@ const paste = await import('../src/main/paste')
 let dir = ''
 let engine: InstanceType<typeof DictationEngine>
 let events: StateEvent[] = []
+let published: StateEvent[] = []
 
 function makeEngine() {
   const store = new Store(join(dir, 'store.json'))
   store.updateSettings({ stt: { provider: 'openrouter' } })
   events = []
+  published = []
   const instance: InstanceType<typeof DictationEngine> = new DictationEngine({
     store,
     secrets: { get: () => 'key' } as never,
@@ -51,6 +53,7 @@ function makeEngine() {
     hideOverlay: () => undefined,
     setOverlayMouse: () => undefined,
     sendOverlay: (event) => events.push(event),
+    publishState: (event) => published.push(event),
     sendLevel: () => undefined,
     sendHub: () => undefined,
     // Stand-in for the capture renderer: acknowledge a stop with a 1 s clip.
@@ -211,6 +214,16 @@ describe('dictation engine', () => {
   it('marks mouse-started sessions so the overlay does not promise a key release', async () => {
     await engine.toggle(true)
     expect(events.at(-1)).toMatchObject({ state: 'listening', source: 'ui' })
+    await engine.cancel()
+  })
+
+  it('publishes the same merged event the overlay receives, once per change', async () => {
+    await engine.toggle(true)
+    const last = published.at(-1)
+    expect(last).toMatchObject({ state: 'listening', source: 'ui', insert: true })
+    expect(typeof last?.sounds).toBe('boolean')
+    expect(published.at(-1)).toEqual(events.at(-1))
+    expect(published).toHaveLength(events.length)
     await engine.cancel()
   })
 

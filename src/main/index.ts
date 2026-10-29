@@ -25,7 +25,7 @@ import { DictationEngine } from './dictation'
 import { Store } from './store'
 import { Secrets } from './secrets'
 import { initLogger, getLogPath, log } from './logger'
-import { ControlServer, type ApiTable } from './control'
+import { ControlServer, type ApiEvent, type ApiTable } from './control'
 import { buildApi, redactSecrets } from './api'
 import { copyToClipboard, notify, placeOwnWindow } from './paste'
 import { seedDemo } from './demo'
@@ -131,9 +131,8 @@ function sendHub(channel: string, payload?: unknown): void {
       updateTrayMenu()
     }
   }
-  // The overlay gets the same state via sendOverlay; publish once, from the hub's full state.
-  if (channel === 'state') control?.publish({ type: 'state', state: payload as StateEvent })
-  else if (channel === 'refresh') control?.publish({ type: 'refresh' })
+  // State is published by the engine (publishState) as the merged overlay event.
+  if (channel === 'refresh') control?.publish({ type: 'refresh' })
   else if (channel === 'page') control?.publish({ type: 'page', page: payload as string })
   if (hub && !hub.isDestroyed()) hub.webContents.send(`hub:${channel}`, payload)
 }
@@ -171,9 +170,15 @@ function overlayBounds(): Electron.Rectangle {
 }
 
 let lastOverlayBounds: Electron.Rectangle = { x: 0, y: 0, width: 0, height: 0 }
+let lastOverlayVisible = false
+
+function overlayEvent(): ApiEvent {
+  return { type: 'overlay', visible: lastOverlayVisible, ...lastOverlayBounds }
+}
 
 function publishOverlay(visible: boolean): void {
-  control?.publish({ type: 'overlay', visible, ...lastOverlayBounds })
+  lastOverlayVisible = visible
+  control?.publish(overlayEvent())
 }
 
 function showOverlay(): void {
@@ -381,6 +386,7 @@ function createEngine(): void {
     hideOverlay,
     setOverlayMouse,
     sendOverlay,
+    publishState: (state) => control?.publish({ type: 'state', state }),
     sendLevel,
     sendHub,
     sendCapture,
@@ -410,6 +416,7 @@ function createControl(): void {
   control = new ControlServer(userData, {
     rpc: redactSecrets(api),
     state: () => engine.getState(),
+    snapshot: () => [{ type: 'state', state: engine.overlayEvent(engine.getState()) }, overlayEvent()],
     start: (insert) => engine.start(insert),
     stop: () => engine.stop(),
     toggle: () => engine.toggle(),
