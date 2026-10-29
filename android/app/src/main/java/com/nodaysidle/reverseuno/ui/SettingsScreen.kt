@@ -35,7 +35,6 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import com.nodaysidle.reverseuno.core.LANGUAGE_OPTIONS
 import com.nodaysidle.reverseuno.core.Store
 import com.nodaysidle.reverseuno.core.StoreData
-import com.nodaysidle.reverseuno.core.statsFromHistory
 import com.nodaysidle.reverseuno.dictation.HubDictation
 import com.nodaysidle.reverseuno.dictation.HubPhase
 import com.nodaysidle.reverseuno.security.KeyVault
@@ -44,7 +43,6 @@ import com.nodaysidle.reverseuno.service.BubbleRuntime
 import com.nodaysidle.reverseuno.stt.ProviderApi
 import com.nodaysidle.reverseuno.stt.SttModel
 import kotlinx.coroutines.launch
-import java.text.NumberFormat
 
 private sealed interface KeyTest {
     data object Idle : KeyTest
@@ -99,16 +97,15 @@ fun SettingsScreen(data: StoreData) {
     ) {
         item {
             PageHeader(
-                eyebrow = "Everything local, except audio in flight",
                 title = "Settings",
                 sub = "The bubble is the whole interface. Everything else is here when you want to tune it.",
-                aside = {
-                    Chip(
-                        "${NumberFormat.getIntegerInstance().format(statsFromHistory(data.history).totalWords)} words",
-                        bg = Tokens.greenSoft, fg = Tokens.green, dot = Tokens.green,
-                    )
-                },
             )
+        }
+
+        item {
+            Section("Usage", "Counted from the dictations stored on this phone.") {
+                UsageStats(data.history)
+            }
         }
 
         item {

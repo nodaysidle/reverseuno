@@ -108,12 +108,10 @@ fun Eyebrow(text: String, modifier: Modifier = Modifier, color: Color = Tokens.m
     }
 }
 
-/** Eyebrow, serif title, sub copy; [aside] sits under it on a phone (beside it on desktop). */
+/** Title and sub copy; [aside] sits under it on a phone (beside it on desktop). */
 @Composable
-fun PageHeader(eyebrow: String, title: String, sub: String? = null, aside: (@Composable () -> Unit)? = null) {
+fun PageHeader(title: String, sub: String? = null, aside: (@Composable () -> Unit)? = null) {
     Column(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 18.dp)) {
-        Eyebrow(eyebrow)
-        Spacer(Modifier.height(6.dp))
         Text(title, style = Type.pageTitle, color = Tokens.ink)
         if (sub != null) {
             Spacer(Modifier.height(11.dp))

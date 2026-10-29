@@ -67,9 +67,8 @@ fun SnippetsScreen(data: StoreData) {
     ) {
         item {
             PageHeader(
-                eyebrow = "Say it once",
                 title = "Snippets",
-                sub = "Say a trigger and reverseuno expands it into a whole block — a sign-off, an address, a link you paste every day.",
+                sub = "Say a trigger and reverseuno expands it into a whole block: a sign-off, an address, a link you paste every day.",
                 aside = {
                     Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                         Counter(data.snippets.size.toString(), "snippets")
@@ -117,7 +116,7 @@ fun SnippetsScreen(data: StoreData) {
                         action = {
                             Btn("Use an example", onClick = {
                                 trigger = "sign off"
-                                content = "Thanks — talk soon.\n\n— Arch"
+                                content = "Thanks, talk soon.\n\nArch"
                             }, size = BtnSize.SM, icon = Lucide.Sparkles)
                         },
                     )

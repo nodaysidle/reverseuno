@@ -95,7 +95,6 @@ fun DictionaryScreen(data: StoreData) {
     ) {
         item {
             PageHeader(
-                "Personal vocabulary",
                 "Dictionary",
                 "Names, products and jargon that speech-to-text keeps getting wrong. Starred words are sent to the recogniser first.",
             ) {
