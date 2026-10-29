@@ -63,7 +63,7 @@ fun StyleScreen(data: StoreData) {
 
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = Gutter, end = Gutter, bottom = 24.dp)) {
         PageHeader(
-            "Tone and cleanup", "Style",
+            "Style",
             "Speech is messy. Decide how much of that mess survives, and how the finished text should sound.",
             aside = {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -119,7 +119,7 @@ fun StyleScreen(data: StoreData) {
         Card(Modifier.fillMaxWidth()) {
             Text("Custom instructions", style = Type.sectionTitle, color = Tokens.ink)
             Spacer(Modifier.height(4.dp))
-            Text("Optional. Tell the formatter how you write — it will not override the hard rules.", style = Type.hint, color = Tokens.muted)
+            Text("Optional. Tell the formatter how you write. It will not override the hard rules.", style = Type.hint, color = Tokens.muted)
             Spacer(Modifier.height(12.dp))
             Input(
                 draft, { draft = it },

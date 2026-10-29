@@ -4,6 +4,7 @@ import android.Manifest
 import android.accessibilityservice.AccessibilityService
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Rect
@@ -16,11 +17,19 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import androidx.core.content.ContextCompat
 import com.nodaysidle.reverseuno.MainActivity
+import com.nodaysidle.reverseuno.core.Settings
 import com.nodaysidle.reverseuno.core.Store
+import com.nodaysidle.reverseuno.core.preferredSpellings
 import com.nodaysidle.reverseuno.dictation.Pipeline
 import com.nodaysidle.reverseuno.dictation.Target
 import com.nodaysidle.reverseuno.dictation.Transcript
+import com.nodaysidle.reverseuno.security.KeyVault
+import com.nodaysidle.reverseuno.security.Secret
+import com.nodaysidle.reverseuno.stt.DeepgramStreamingClient
 import com.nodaysidle.reverseuno.stt.DictationAudioRecorder
+import com.nodaysidle.reverseuno.stt.StreamingStt
+import com.nodaysidle.reverseuno.stt.SttResult
+import com.nodaysidle.reverseuno.stt.XaiStreamingClient
 import com.nodaysidle.reverseuno.ui.BubbleState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -34,14 +43,18 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class VoiceAccessibilityService : AccessibilityService() {
+class VoiceAccessibilityService : AccessibilityService(), BubbleController {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private var overlay: FloatingMicOverlay? = null
+    private val overlay: FloatingMicOverlay? get() = BubbleRuntime.overlay
     private lateinit var recorder: DictationAudioRecorder
     private lateinit var pipeline: Pipeline
     private var recordingStartedAt = 0L
     private var isRecording = false
     private var amplitudeJob: Job? = null
+    private var interimJob: Job? = null
+    private var streaming: StreamingStt? = null
+    private var streamProvider = "deepgram"
+    private var streamModel = ""
     private var processingJob: Job? = null
     private var feedbackJob: Job? = null
     private var lastEditableNode: AccessibilityNodeInfo? = null
@@ -53,57 +66,66 @@ class VoiceAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         activeService = this
+        BubbleRuntime.controller = this
         Store.init(this)
         recorder = DictationAudioRecorder(this)
         pipeline = Pipeline(this)
-        runCatching {
-            overlay = FloatingMicOverlay(
-                context = this,
-                onTap = ::onBubbleTap,
-                onHoldStart = ::startRecording,
-                onHoldEnd = ::finishRecording,
-                onHoldCancel = ::cancelRecording,
-            )
-            setOverlayVisibility(Store.settings.bubble.enabled)
-        }.onFailure {
-            Log.e(TAG, "Overlay init failed", it)
-        }
+        BubbleRuntime.start(this)
+        onAccessibilityEvent(null)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (!Store.settings.bubble.enabled) {
-            overlay?.hide()
+            BubbleRuntime.applyContext(false, null)
             return
         }
+        val eventPackage = event?.packageName?.toString().orEmpty()
         val source = event?.source
-        val packageName = event?.packageName?.toString().orEmpty()
-        val activeNode = source?.takeIf { it.isEditable }
+        val activeNode = source?.takeIf { node ->
+            node.isEditable && shouldCacheEditablePackage(node.packageName?.toString().orEmpty().ifBlank { eventPackage })
+        }
             ?: runCatching { findFocus(AccessibilityNodeInfo.FOCUS_INPUT) }.getOrNull()?.takeIf { it.isEditable }
             ?: currentFocusedEditable()
+
+        val relevant = activeNode != null || event == null || (event.eventType and KEYBOARD_CONTEXT_EVENTS) != 0
+        if (!relevant) return
+
         if (activeNode != null) {
-            val nodePkg = activeNode.packageName?.toString().orEmpty().ifBlank { packageName }
-            if (shouldCacheEditablePackage(nodePkg)) cacheEditableNode(activeNode, nodePkg)
+            val nodePackage = activeNode.packageName?.toString().orEmpty().ifBlank { eventPackage }
+            if (shouldCacheEditablePackage(nodePackage)) cacheEditableNode(activeNode, nodePackage)
         }
-        if (event != null && event.eventType and KEYBOARD_CONTEXT_EVENTS != 0) followKeyboard()
+
+        val decision = BubbleContextPolicy.evaluate(
+            FieldContext(
+                inputType = activeNode?.inputType ?: 0,
+                packageName = activeNode?.packageName?.toString().orEmpty().ifBlank { eventPackage },
+                viewClassName = activeNode?.className?.toString().orEmpty(),
+                isPassword = activeNode?.isPassword == true,
+                isEditable = activeNode?.isEditable == true,
+                hasImeWindow = hasImeWindow(),
+            ),
+            ownPackage = this.packageName,
+        )
+        BubbleRuntime.applyContext(decision.show, if (decision.show) imeTop() else null)
     }
 
-    /** The bubble sits just above a visible keyboard and fades out when it closes. */
-    private fun followKeyboard() {
-        val imeTop = computeKeyboardAnchorTop()
-        overlay?.setVisible(imeTop != null)
-        overlay?.show()
-        overlay?.anchorAboveKeyboard(imeTop)
-    }
+    override fun onTap() = onBubbleTap()
 
-    /** Top of the visible IME window (screen px) when it serves a dictatable field in another app. */
-    private fun computeKeyboardAnchorTop(): Int? {
-        val focus = runCatching { findFocus(AccessibilityNodeInfo.FOCUS_INPUT) }.getOrNull() ?: return null
-        if (!isDictatableField(focus.isEditable, focus.isPassword, focus.inputType)) return null
-        if (!shouldCacheEditablePackage(focus.packageName?.toString().orEmpty())) return null
+    override fun onHoldStart() = startRecording()
+
+    override fun onHoldEnd() = finishRecording()
+
+    override fun onHoldCancel() = cancelRecording()
+
+    /** Top of the visible IME window in screen pixels; null when no keyboard is shown. */
+    private fun imeTop(): Int? {
         val ime = windows.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD } ?: return null
         val bounds = Rect().also(ime::getBoundsInScreen)
         return bounds.top.takeUnless { bounds.isEmpty }
     }
+
+    private fun hasImeWindow(): Boolean =
+        windows.any { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
 
     override fun onInterrupt() {
         cancelRecording()
@@ -112,7 +134,8 @@ class VoiceAccessibilityService : AccessibilityService() {
     override fun onDestroy() {
         cancelRecording()
         if (activeService === this) activeService = null
-        overlay?.hide()
+        if (BubbleRuntime.controller === this) BubbleRuntime.controller = null
+        BubbleRuntime.applyContext(false, null)
         scope.cancel()
         super.onDestroy()
     }
@@ -137,8 +160,20 @@ class VoiceAccessibilityService : AccessibilityService() {
             return
         }
         cacheCurrentFocusedEditable()
-        runCatching { recorder.start() }.onFailure {
+        val settings = Store.settings
+        val keyterms = preferredSpellings(Store.data.value.dictionary, settings.stt.keytermLimit)
+        val stream = createStreamer(settings, keyterms)
+        streaming = stream
+        interimJob = stream?.let { active ->
+            scope.launch {
+                active.interim.collect { text -> overlay?.pushInterim(text) }
+            }
+        }
+        runCatching { recorder.start { chunk -> stream?.send(chunk) } }.onFailure {
             Log.e(TAG, "Recorder start failed", it)
+            stream?.cancel()
+            interimJob?.cancel()
+            streaming = null
             showFeedback(BubbleState.ERROR, "Microphone busy", ERROR_HOLD_MS)
             return
         }
@@ -150,6 +185,11 @@ class VoiceAccessibilityService : AccessibilityService() {
         amplitudeJob = scope.launch {
             while (isActive && isRecording) {
                 overlay?.pushLevel(normalizedLevel(recorder.maxAmplitude()))
+                if (System.currentTimeMillis() - recordingStartedAt >= MAX_UTTERANCE_MS) {
+                    Log.i(TAG, "Utterance reached the 5 minute limit")
+                    finishRecording()
+                    break
+                }
                 delay(AMPLITUDE_POLL_MS)
             }
         }
@@ -158,6 +198,10 @@ class VoiceAccessibilityService : AccessibilityService() {
     private fun cancelRecording() {
         if (!isRecording) return
         amplitudeJob?.cancel()
+        interimJob?.cancel()
+        interimJob = null
+        streaming?.cancel()
+        streaming = null
         recorder.cancel()
         isRecording = false
         overlay?.setState(BubbleState.IDLE)
@@ -168,7 +212,12 @@ class VoiceAccessibilityService : AccessibilityService() {
         amplitudeJob?.cancel()
         isRecording = false
         overlay?.haptic()
+        val stream = streaming
+        streaming = null
+        interimJob?.cancel()
+        interimJob = null
         val audio = recorder.stop() ?: run {
+            stream?.cancel()
             overlay?.setState(BubbleState.IDLE)
             return
         }
@@ -176,8 +225,22 @@ class VoiceAccessibilityService : AccessibilityService() {
         val durationMs = System.currentTimeMillis() - recordingStartedAt
         val target = Target(lastEditablePackage, appLabel(lastEditablePackage))
         processingJob = scope.launch {
+            val stopStarted = System.currentTimeMillis()
+            val streamed: SttResult? = stream?.let { active ->
+                runCatching { active.finish() }
+                    .onFailure { Log.w(TAG, "Streaming transcription failed, falling back: ${it.message}") }
+                    .getOrNull()
+            }
+            val streamedMs = if (streamed != null) System.currentTimeMillis() - stopStarted else 0L
             val transcript = try {
-                pipeline.process(audio, target)
+                pipeline.process(
+                    audio = audio,
+                    target = target,
+                    streamed = streamed,
+                    streamedMs = streamedMs,
+                    streamedProvider = streamProvider,
+                    streamedModel = streamModel,
+                )
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -198,10 +261,35 @@ class VoiceAccessibilityService : AccessibilityService() {
         val text = pipeline.forInsertion(transcript.text)
         val (setTextOk, pasteOk) = injectText(text)
         val feedback = InsertionFeedback.from(setTextOk, pasteOk)
-        pipeline.save(transcript, target, recordingStartedAt, durationMs, inserted = setTextOk || pasteOk)
+        val inserted = setTextOk || pasteOk
+        pipeline.save(
+            transcript, target, recordingStartedAt, durationMs,
+            inserted = inserted,
+            error = if (inserted) null else "clipboard",
+        )
         Log.d(TAG, "Inserted length=${text.length} setText=$setTextOk paste=$pasteOk")
         if (!setTextOk && !pasteOk) ClipboardNotification.show(this, text)
         showFeedback(feedback.state, "Copied, paste it", feedback.holdMillis)
+    }
+
+    /** Null when streaming is off or the selected provider has no key; the one-shot path then runs. */
+    private fun createStreamer(settings: Settings, keyterms: List<String>): StreamingStt? {
+        if (!settings.stt.streaming) return null
+        val language = settings.stt.language
+        return runCatching {
+            when (settings.stt.provider) {
+                "xai" -> KeyVault.get(this, Secret.XAI).takeIf { it.isNotBlank() }?.let { key ->
+                    streamProvider = "xai"
+                    streamModel = settings.stt.xaiModel
+                    XaiStreamingClient(key, language, keyterms, settings.stt.xaiModel)
+                }
+                else -> KeyVault.get(this, Secret.DEEPGRAM).takeIf { it.isNotBlank() }?.let { key ->
+                    streamProvider = "deepgram"
+                    streamModel = settings.stt.deepgramModel
+                    DeepgramStreamingClient(key, language, keyterms, settings.stt.deepgramModel)
+                }
+            }
+        }.onFailure { Log.w(TAG, "Streaming setup failed: ${it.message}") }.getOrNull()
     }
 
     private fun showFeedback(state: BubbleState, message: String, holdMillis: Long) {
@@ -327,10 +415,6 @@ class VoiceAccessibilityService : AccessibilityService() {
         packageManager.getApplicationLabel(packageManager.getApplicationInfo(packageName, 0)).toString()
     }.getOrDefault("")
 
-    fun setOverlayVisibility(enabled: Boolean) {
-        if (enabled) followKeyboard() else overlay?.hide()
-    }
-
     companion object {
         private const val TAG = "ReverseunoService"
         private const val FOCUS_RETRY_COUNT = 6
@@ -338,16 +422,17 @@ class VoiceAccessibilityService : AccessibilityService() {
         private const val ERROR_HOLD_MS = 1800L
         private const val SETUP_HINT_HOLD_MS = 3500L
         private const val AMPLITUDE_POLL_MS = 50L
+        private const val MAX_UTTERANCE_MS = 300_000L
         private const val STALE_EDITABLE_NODE_MS = 120_000L
         private const val KEYBOARD_CONTEXT_EVENTS = AccessibilityEvent.TYPE_WINDOWS_CHANGED or
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or
             AccessibilityEvent.TYPE_VIEW_FOCUSED
-        private val IGNORED_EDITABLE_PACKAGES = setOf("com.android.systemui")
+        private val IGNORED_EDITABLE_PACKAGES = emptySet<String>()
 
         @Volatile private var activeService: VoiceAccessibilityService? = null
 
-        fun updateOverlayVisibility(enabled: Boolean) {
-            activeService?.setOverlayVisibility(enabled)
+        fun updateOverlayVisibility(context: Context, enabled: Boolean) {
+            BubbleRuntime.setEnabled(context, enabled)
         }
     }
 }

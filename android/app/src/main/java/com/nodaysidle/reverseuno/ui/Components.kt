@@ -37,8 +37,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
@@ -56,7 +58,7 @@ import com.composables.icons.lucide.Lucide
 // Compose versions of the shared pieces in hub/components.tsx and the base.css classes.
 
 val RadiusSm = RoundedCornerShape(12.dp)
-val Radius = RoundedCornerShape(18.dp)
+val Radius = RoundedCornerShape(20.dp)
 val Pill = RoundedCornerShape(percent = 50)
 
 /** Horizontal page gutter. */
@@ -72,12 +74,26 @@ fun Card(
     onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val fill = background ?: Tokens.surface.copy(alpha = if (flat) 0.30f else 0.48f)
+    // Solid surfaces read as one object; translucency over the page muddies the hierarchy.
+    val fill = background ?: if (flat) Tokens.paper2 else Tokens.surface
+    val dark = Tokens.dark
     Column(
         modifier
             .clip(Radius)
             .background(fill, Radius)
             .border(1.dp, Tokens.line, Radius)
+            // Specular hairline: makes a flat card read as a physical surface.
+            .drawWithContent {
+                drawContent()
+                if (dark) {
+                    drawLine(
+                        color = Color.White.copy(alpha = 0.07f),
+                        start = Offset(0f, 0f),
+                        end = Offset(size.width, 0f),
+                        strokeWidth = 1f,
+                    )
+                }
+            }
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(padding),
         content = content,
@@ -92,12 +108,10 @@ fun Eyebrow(text: String, modifier: Modifier = Modifier, color: Color = Tokens.m
     }
 }
 
-/** Eyebrow, serif title, sub copy; [aside] sits under it on a phone (beside it on desktop). */
+/** Title and sub copy; [aside] sits under it on a phone (beside it on desktop). */
 @Composable
-fun PageHeader(eyebrow: String, title: String, sub: String? = null, aside: (@Composable () -> Unit)? = null) {
+fun PageHeader(title: String, sub: String? = null, aside: (@Composable () -> Unit)? = null) {
     Column(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 18.dp)) {
-        Eyebrow(eyebrow)
-        Spacer(Modifier.height(6.dp))
         Text(title, style = Type.pageTitle, color = Tokens.ink)
         if (sub != null) {
             Spacer(Modifier.height(11.dp))
@@ -128,7 +142,7 @@ fun Btn(
     val (bg, fg, border) = when (variant) {
         BtnVariant.PRIMARY -> Triple(p.solid, p.cream, Color.Transparent)
         BtnVariant.ACCENT -> Triple(p.accent, p.onAccent, Color.Transparent)
-        BtnVariant.GHOST -> Triple(p.surface.copy(alpha = 0.35f), p.ink, p.lineStrong)
+        BtnVariant.GHOST -> Triple(p.surface, p.ink, p.lineStrong)
         BtnVariant.SOFT -> Triple(p.ink.copy(alpha = 0.06f), p.ink, Color.Transparent)
         BtnVariant.DANGER -> Triple(p.redSoft.copy(alpha = 0.45f), p.red, p.red.copy(alpha = 0.22f))
     }
@@ -287,7 +301,7 @@ fun Input(
                 Modifier
                     .fillMaxWidth()
                     .heightIn(min = 44.dp)
-                    .background(Tokens.surface.copy(alpha = 0.55f), shape)
+                    .background(Tokens.surface, shape)
                     .border(1.dp, Tokens.lineStrong, shape)
                     .padding(horizontal = 14.dp, vertical = 11.dp),
                 verticalAlignment = if (singleLine) Alignment.CenterVertically else Alignment.Top,
@@ -313,7 +327,7 @@ fun <T> Select(value: T, options: List<Pair<T, String>>, onChange: (T) -> Unit, 
                 .widthIn(min = 160.dp)
                 .height(44.dp)
                 .clip(RadiusSm)
-                .background(Tokens.surface.copy(alpha = 0.55f))
+                .background(Tokens.surface)
                 .border(1.dp, Tokens.lineStrong, RadiusSm)
                 .clickable(role = Role.DropdownList) { open = true }
                 .padding(horizontal = 14.dp),

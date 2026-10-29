@@ -94,43 +94,43 @@ private fun derived(
 /** The navy look in docs/screenshots, sampled from the desktop hub. */
 val NightPalette = derived(
     dark = true,
-    background = Color(0xFF0B101E),
-    foreground = Color(0xFFE8ECF4),
-    accent = Color(0xFF1356CC),
-    onAccent = Color(0xFFFFFFFF),
-    muted = Color(0xFF6A7EA3),
-    surface = Color(0xFF111A2D),
-    deep = Color(0xFF060914),
-    red = Color(0xFFE5534B),
-    green = Color(0xFF3FB950),
-    violet = Color(0xFF7AA2F7),
+    background = Color(0xFF0A0A0B),
+    foreground = Color(0xFFF5F5F7),
+    accent = Color(0xFFF5F5F7),
+    onAccent = Color(0xFF0A0A0B),
+    muted = Color(0xFF8E8E93),
+    surface = Color(0xFF171719),
+    deep = Color(0xFF050506),
+    red = Color(0xFFFF453A),
+    green = Color(0xFF30D158),
+    violet = Color(0xFFBF5AF2),
 )
 
 /** The built-in paper look (base.css :root). */
 val PaperPalette = Palette(
     dark = false,
-    paper = Color(0xFFF4EFE4),
-    paper2 = Color(0xFFFBF8F0),
-    paper3 = Color(0xFFECE5D6),
-    paper4 = Color(0xFFE2DAC8),
+    paper = Color(0xFFF4F4F2),
+    paper2 = Color(0xFFEFEFEC),
+    paper3 = Color(0xFFE7E7E3),
+    paper4 = Color(0xFFDCDCD7),
     surface = Color(0xFFFFFFFF),
-    ink = Color(0xFF171715),
-    inkSoft = Color(0xFF4B4A44),
-    muted = Color(0xFF8B8678),
-    line = Color(0xFF171715).copy(alpha = 0.10f),
-    lineStrong = Color(0xFF171715).copy(alpha = 0.18f),
-    accent = Color(0xFFF45B36),
-    accentSoft = Color(0xFFFFD9CD),
+    ink = Color(0xFF1C1C1E),
+    inkSoft = Color(0xFF48484A),
+    muted = Color(0xFF6E6E73),
+    line = Color(0xFF1C1C1E).copy(alpha = 0.09f),
+    lineStrong = Color(0xFF1C1C1E).copy(alpha = 0.16f),
+    accent = Color(0xFF1C1C1E),
+    accentSoft = Color(0xFFE7E7E3),
     onAccent = Color(0xFFFFFFFF),
-    violet = Color(0xFF7E5CB4),
-    lavender = Color(0xFFE8D9FF),
-    green = Color(0xFF2F7A5B),
-    greenSoft = Color(0xFFDCEFE5),
-    red = Color(0xFFC5492F),
-    redSoft = Color(0xFFF7DED7),
-    deep = Color(0xFF141412),
-    solid = Color(0xFF171715),
-    cream = Color(0xFFFFFCEB),
+    violet = Color(0xFF5E5CE6),
+    lavender = Color(0xFFEAE9F8),
+    green = Color(0xFF248A3D),
+    greenSoft = Color(0xFFE3F3E7),
+    red = Color(0xFFD70015),
+    redSoft = Color(0xFFFBE4E6),
+    deep = Color(0xFF0A0A0B),
+    solid = Color(0xFF1C1C1E),
+    cream = Color(0xFFFFFFFF),
 )
 
 val LocalPalette = staticCompositionLocalOf { NightPalette }
@@ -148,28 +148,35 @@ private fun inter(weight: Int) = Font(
 /** --font-sans: Inter Variable. */
 val Sans = FontFamily(inter(400), inter(500), inter(600), inter(650), inter(700))
 
-/** --font-display: Instrument Serif. */
-val Display = FontFamily(Font(R.font.instrument_serif))
+/** macOS-like display: the same sans, semibold, tight tracking. */
+val Display = Sans
 
 val Mono = FontFamily.Monospace
 
 /** Type styles from hub.css, scaled for a phone. */
 object Type {
-    /** .page-title (54px desktop). */
-    val pageTitle = TextStyle(fontFamily = Display, fontSize = 46.sp, lineHeight = 44.sp, letterSpacing = (-0.022).em)
-    /** .settings-section-title and card headings. */
-    val sectionTitle = TextStyle(fontFamily = Display, fontSize = 26.sp, lineHeight = 26.sp, letterSpacing = (-0.02).em)
-    /** Big serif numbers in stat cards. */
-    val statNumber = TextStyle(fontFamily = Display, fontSize = 40.sp, lineHeight = 40.sp, letterSpacing = (-0.022).em)
-    /** .eyebrow: uppercase, tracked, muted. */
-    val eyebrow = TextStyle(fontFamily = Sans, fontSize = 10.5.sp, fontWeight = FontWeight(650), letterSpacing = 0.14.em)
-    val body = TextStyle(fontFamily = Sans, fontSize = 14.sp, lineHeight = 21.sp)
-    /** .page-sub. */
-    val sub = TextStyle(fontFamily = Sans, fontSize = 13.5.sp, lineHeight = 20.sp)
-    val label = TextStyle(fontFamily = Sans, fontSize = 13.5.sp, fontWeight = FontWeight(600))
-    /** .setting-hint / .settings-section-desc. */
-    val hint = TextStyle(fontFamily = Sans, fontSize = 11.5.sp, lineHeight = 17.sp)
-    val small = TextStyle(fontFamily = Sans, fontSize = 12.sp, lineHeight = 16.sp)
+    /** Page title, macOS-large: semibold, tight. */
+    val pageTitle = TextStyle(fontFamily = Display, fontSize = 38.sp, lineHeight = 42.sp, letterSpacing = (-0.03).em, fontWeight = FontWeight(600))
+    /** Section and card headings. */
+    val sectionTitle = TextStyle(fontFamily = Display, fontSize = 22.sp, lineHeight = 27.sp, letterSpacing = (-0.02).em, fontWeight = FontWeight(600))
+    /** Counters: tabular so digits never jitter. */
+    val statNumber = TextStyle(
+        fontFamily = Display,
+        fontSize = 38.sp,
+        lineHeight = 40.sp,
+        letterSpacing = (-0.03).em,
+        fontWeight = FontWeight(600),
+        fontFeatureSettings = "tnum",
+    )
+    /** Uppercase metadata; tracked but quiet. */
+    val eyebrow = TextStyle(fontFamily = Sans, fontSize = 10.5.sp, fontWeight = FontWeight(500), letterSpacing = 0.12.em)
+    val body = TextStyle(fontFamily = Sans, fontSize = 15.sp, lineHeight = 22.sp)
+    /** Page sub copy. */
+    val sub = TextStyle(fontFamily = Sans, fontSize = 14.sp, lineHeight = 21.sp)
+    val label = TextStyle(fontFamily = Sans, fontSize = 14.sp, fontWeight = FontWeight(500))
+    /** Setting hints and secondary metadata. */
+    val hint = TextStyle(fontFamily = Sans, fontSize = 12.sp, lineHeight = 17.sp)
+    val small = TextStyle(fontFamily = Sans, fontSize = 12.5.sp, lineHeight = 17.sp)
     val mono = TextStyle(fontFamily = Mono, fontSize = 11.5.sp)
 }
 

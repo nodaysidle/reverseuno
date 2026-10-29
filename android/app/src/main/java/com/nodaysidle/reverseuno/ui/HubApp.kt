@@ -1,9 +1,7 @@
 package com.nodaysidle.reverseuno.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,35 +31,32 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composables.icons.lucide.BookOpen
 import com.composables.icons.lucide.House
 import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.PenLine
 import com.composables.icons.lucide.Quote
 import com.composables.icons.lucide.Settings
-import com.composables.icons.lucide.Sparkles
-import com.nodaysidle.reverseuno.R
 import com.nodaysidle.reverseuno.core.StoreData
 
 enum class Page(val label: String, val icon: ImageVector) {
     HOME("Home", Lucide.House),
     DICTIONARY("Dictionary", Lucide.BookOpen),
     SNIPPETS("Snippets", Lucide.Quote),
-    STYLE("Style", Lucide.Sparkles),
+    STYLE("Style", Lucide.PenLine),
     SETTINGS("Settings", Lucide.Settings),
 }
 
-/** The desktop hub's sidebar becomes a brand bar on top and a tab bar at the bottom. */
+/** The desktop hub's sidebar becomes a tab bar at the bottom; pages start right under the status bar. */
 @Composable
 fun HubApp(data: StoreData) {
     var page by rememberSaveable { mutableStateOf(Page.HOME) }
     BackHandler(page != Page.HOME) { page = Page.HOME }
     Column(Modifier.fillMaxSize()) {
-        Brand(Modifier.statusBarsPadding())
-        Box(Modifier.weight(1f)) {
+        Box(Modifier.weight(1f).statusBarsPadding()) {
             when (page) {
                 Page.HOME -> HomeScreen(data, navigate = { page = it })
                 Page.DICTIONARY -> DictionaryScreen(data)
@@ -71,21 +66,6 @@ fun HubApp(data: StoreData) {
             }
         }
         TabBar(page, badge = data.history.size, onSelect = { page = it })
-    }
-}
-
-@Composable
-private fun Brand(modifier: Modifier) {
-    Row(modifier.fillMaxWidth().padding(horizontal = Gutter, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).border(1.dp, Tokens.line, RoundedCornerShape(12.dp)).background(Tokens.paper2),
-            contentAlignment = Alignment.Center,
-        ) { Image(painterResource(R.drawable.logo), null, Modifier.size(28.dp).clip(RoundedCornerShape(7.dp))) }
-        Spacer(Modifier.width(12.dp))
-        Column {
-            Text("reverseuno", style = Type.sectionTitle.copy(fontSize = 22.sp, lineHeight = 22.sp), color = Tokens.ink)
-            Text("VOICE, WRITTEN", style = Type.eyebrow.copy(fontSize = 9.sp), color = Tokens.muted)
-        }
     }
 }
 

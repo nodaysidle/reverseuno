@@ -34,6 +34,10 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.semantics.Role
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,15 +52,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
-import com.composables.icons.lucide.ArrowUpRight
 import com.composables.icons.lucide.Check
 import com.composables.icons.lucide.Circle
 import com.composables.icons.lucide.Clock3
 import com.composables.icons.lucide.Copy
-import com.composables.icons.lucide.Flame
 import com.composables.icons.lucide.Gauge
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Mic
@@ -90,14 +93,6 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
-
-private fun greeting(hour: Int = java.time.LocalTime.now().hour) = when {
-    hour < 5 -> "Still up"
-    hour < 12 -> "Good morning"
-    hour < 17 -> "Good afternoon"
-    hour < 22 -> "Good evening"
-    else -> "Good night"
-}
 
 private fun number(value: Int): String = NumberFormat.getInstance().format(value)
 private fun timeOf(millis: Long): String =
@@ -160,105 +155,78 @@ fun HomeScreen(data: StoreData, navigate: (Page) -> Unit) {
     }
     val micOn = remember(tick) { SystemSetup.hasMic(context) }
     val a11yOn = remember(tick) { SystemSetup.isAccessibilityOn(context) }
-    val keyOn = remember(tick) { KeyVault.get(context, Secret.OPENROUTER).isNotBlank() }
+    val overlayOn = remember(tick) { SystemSetup.hasOverlay(context) }
+    val keyOn = remember(tick) {
+        KeyVault.get(context, Secret.OPENROUTER).isNotBlank() ||
+            KeyVault.get(context, Secret.DEEPGRAM).isNotBlank() ||
+            KeyVault.get(context, Secret.XAI).isNotBlank()
+    }
     val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { tick++ }
     val askMic = { micLauncher.launch(Manifest.permission.RECORD_AUDIO) }
 
-    val stats = remember(data.history) { statsFromHistory(data.history) }
-    val week = remember(stats) { lastNDays(stats.days, 7) }
-    val series = remember(data.history, week) { weeklySeries(data.history, week.map { it.first }) }
+    val dictation by HubDictation.state.collectAsState()
     val needle = query.trim().lowercase()
     val filtered = remember(data.history, needle) {
         if (needle.isEmpty()) data.history
         else data.history.filter { "${it.text} ${it.rawText} ${it.appClass} ${it.appTitle}".lowercase().contains(needle) }
     }
     val groups = remember(filtered) { filtered.groupBy { dayOf(it.createdAt) }.entries.toList() }
-    val clipboard = LocalClipboardManager.current
 
-    LazyColumn(
-        Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(start = Gutter, end = Gutter, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        if (!micOn || !a11yOn || !keyOn) {
-            item("setup") {
-                Spacer(Modifier.height(4.dp))
-                SetupCard(micOn, a11yOn, keyOn, askMic, { SystemSetup.openAccessibility(context) }, { navigate(Page.SETTINGS) })
-            }
-        }
-        item("header") {
-            PageHeader(
-                eyebrow = DateTimeFormatter.ofPattern("EEEE, MMMM d").format(LocalDate.now()),
-                title = "${greeting()}.",
-                sub = "Tap the bubble in any text field, speak naturally, tap again. Reverseuno writes it right there.",
-                aside = {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        BubbleStatus(live = a11yOn && data.settings.bubble.enabled, a11yOn = a11yOn)
-                        DictationControls(micOn, askMic) { navigate(Page.SETTINGS) }
-                    }
-                },
-            )
-        }
-        item("search") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Input(query, { query = it }, "Search dictations, apps, raw text", Modifier.weight(1f), shape = Pill, leading = Lucide.Search)
-                    if (query.isNotEmpty()) IconBtn(Lucide.X, "Clear search", { query = "" })
-                }
-                Text(
-                    "${data.history.size} ${if (data.history.size == 1) "dictation" else "dictations"} stored on this phone",
-                    style = Type.hint, color = Tokens.muted, modifier = Modifier.padding(start = 6.dp),
-                )
-            }
-        }
-        item("stats") { StatGrid(stats, series) }
-        item("week") { WeekCard(week, stats.totalWords) }
-        item("rhythm") { RhythmCard(stats) { navigate(Page.STYLE) } }
-        items(data.suggestions.take(3), key = { "s" + it.id }) { SuggestionCard(it) }
-        item("history-head") {
-            Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Recent dictations", style = Type.sectionTitle, color = Tokens.ink)
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        if (needle.isNotEmpty()) "${filtered.size} matching" else "Newest first. Everything stays on this phone.",
-                        style = Type.hint, color = Tokens.muted,
+    // Bare by design: the bubble is the product, so Home is the status line and the dictations it produced.
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(
+            Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(start = Gutter, end = Gutter, top = 16.dp, bottom = 104.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            if (!micOn || !a11yOn || !overlayOn || !keyOn) {
+                item("setup") {
+                    SetupCard(
+                        micOn, a11yOn, overlayOn, keyOn,
+                        askMic,
+                        { SystemSetup.openAccessibility(context) },
+                        { SystemSetup.openOverlay(context) },
+                        { navigate(Page.SETTINGS) },
                     )
                 }
-                if (data.history.isNotEmpty()) {
-                    Btn("Copy latest", {
-                        clipboard.setText(AnnotatedString(data.history.first().text))
-                        toast(context, "Latest dictation copied")
-                    }, variant = BtnVariant.GHOST, size = BtnSize.SM, icon = Lucide.Copy)
-                }
             }
-        }
-        if (groups.isEmpty()) {
-            item("empty") {
-                Card(Modifier.fillMaxWidth(), flat = true) {
-                    EmptyState(
-                        Lucide.Mic,
-                        if (needle.isNotEmpty()) "Nothing matches that search" else "Your first dictation is waiting",
-                        if (needle.isNotEmpty()) "Try a different word, app name, or a phrase from the raw transcript."
-                        else "Tap New dictation, or tap the bubble in any text field and say something.",
-                    ) {
-                        if (needle.isNotEmpty()) Btn("Clear search", { query = "" }, size = BtnSize.SM)
-                        else Btn("Start dictating", { if (micOn) HubDictation.toggle(context) else askMic() }, variant = BtnVariant.PRIMARY, size = BtnSize.SM, icon = Lucide.Mic)
+            item("status") {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    BubbleStatus(live = a11yOn && overlayOn && data.settings.bubble.enabled, a11yOn = a11yOn, overlayOn = overlayOn)
+                    if (dictation.phase != HubPhase.IDLE && dictation.message.isNotBlank()) {
+                        Text(dictation.message, style = Type.small, color = if (dictation.phase == HubPhase.ERROR) Tokens.red else Tokens.inkSoft)
                     }
                 }
             }
-        }
-        for ((day, entries) in groups) {
-            item("g$day") {
-                Row(Modifier.padding(top = 6.dp, start = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(dayLabel(day).uppercase(), style = Type.eyebrow, color = Tokens.muted)
-                    Chip("${entries.size}")
+            item("search") {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Input(query, { query = it }, "Search", Modifier.weight(1f), shape = Pill, leading = Lucide.Search)
+                    if (query.isNotEmpty()) IconBtn(Lucide.X, "Clear search", { query = "" })
                 }
             }
-            items(entries, key = { it.id }) { entry ->
-                HistoryRow(entry, onOpen = { openId = entry.id })
+            items(data.suggestions.take(3), key = { "s" + it.id }) { SuggestionCard(it) }
+            if (groups.isEmpty()) {
+                item("empty") {
+                    EmptyState(
+                        Lucide.Mic,
+                        if (needle.isNotEmpty()) "Nothing matches that search" else "No dictations yet",
+                        if (needle.isNotEmpty()) "Try another word or an app name."
+                        else "Tap the bubble in any text field, or the button below, and speak.",
+                    ) {
+                        if (needle.isNotEmpty()) Btn("Clear search", { query = "" }, size = BtnSize.SM)
+                    }
+                }
+            }
+            for ((day, entries) in groups) {
+                item("g$day") {
+                    Text(dayLabel(day), style = Type.label, color = Tokens.muted, modifier = Modifier.padding(top = 10.dp, start = 4.dp))
+                }
+                items(entries, key = { it.id }) { entry ->
+                    HistoryRow(entry, onOpen = { openId = entry.id })
+                }
             }
         }
+        RecordButton(micOn, askMic, Modifier.align(Alignment.BottomEnd).padding(end = Gutter - 10.dp, bottom = 6.dp))
     }
 
     val open = data.history.find { it.id == openId }
@@ -266,16 +234,26 @@ fun HomeScreen(data: StoreData, navigate: (Page) -> Unit) {
 }
 
 @Composable
-private fun SetupCard(micOn: Boolean, a11yOn: Boolean, keyOn: Boolean, askMic: () -> Unit, openA11y: () -> Unit, openSettings: () -> Unit) {
-    val done = listOf(micOn, a11yOn, keyOn).count { it }
+private fun SetupCard(
+    micOn: Boolean,
+    a11yOn: Boolean,
+    overlayOn: Boolean,
+    keyOn: Boolean,
+    askMic: () -> Unit,
+    openA11y: () -> Unit,
+    openOverlay: () -> Unit,
+    openSettings: () -> Unit,
+) {
+    val done = listOf(micOn, a11yOn, overlayOn, keyOn).count { it }
     Card(Modifier.fillMaxWidth()) {
         Eyebrow("Get set up")
         Spacer(Modifier.height(6.dp))
-        Text("$done of 3 done", style = Type.sectionTitle, color = Tokens.ink)
+        Text("$done of 4 done", style = Type.sectionTitle, color = Tokens.ink)
         Spacer(Modifier.height(6.dp))
         SetupItem(micOn, "Allow the microphone", "Reverseuno listens only while you dictate.", "Allow", askMic)
-        SetupItem(a11yOn, "Turn on the accessibility service", "It shows the bubble above the keyboard and types the text for you.", "Turn on", openA11y)
-        SetupItem(keyOn, "Add your OpenRouter key", "Speech-to-text needs it. Without it, dictating shows an error.", "Add key", openSettings)
+        SetupItem(a11yOn, "Turn on the accessibility service", "It sees the text field and types what you say.", "Turn on", openA11y)
+        SetupItem(overlayOn, "Allow display over other apps", "Keeps the bubble alive in other apps.", "Allow", openOverlay)
+        SetupItem(keyOn, "Add a transcription key", "Deepgram, xAI, or OpenRouter. Any one works.", "Add key", openSettings)
     }
 }
 
@@ -291,19 +269,16 @@ private fun SetupItem(done: Boolean, title: String, detail: String, action: Stri
     }
 }
 
-/** The sidebar's "Ready" card as a status line. */
+/** The bubble's state in one line; the dot is green only while the bubble is really live. */
 @Composable
-private fun BubbleStatus(live: Boolean, a11yOn: Boolean) {
-    Row(
-        Modifier.clip(Pill).background(Tokens.ink.copy(alpha = 0.05f)).padding(horizontal = 12.dp, vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
+private fun BubbleStatus(live: Boolean, a11yOn: Boolean, overlayOn: Boolean) {
+    Row(Modifier.padding(start = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Box(Modifier.size(7.dp).background(if (live) Tokens.green else Tokens.muted, CircleShape))
         Text(
             when {
-                live -> "Ready. The bubble is live in text fields."
+                live -> "Ready"
                 !a11yOn -> "Bubble off. Turn on the accessibility service."
+                !overlayOn -> "Bubble off. Allow display over other apps."
                 else -> "Bubble hidden. Show it in Settings."
             },
             style = Type.small, color = Tokens.inkSoft,
@@ -311,38 +286,44 @@ private fun BubbleStatus(live: Boolean, a11yOn: Boolean) {
     }
 }
 
+/** In-app dictation, drawn as the same mark as the floating bubble so the two read as one control. */
 @Composable
-private fun DictationControls(micOn: Boolean, askMic: () -> Unit, openSettings: () -> Unit) {
+private fun RecordButton(micOn: Boolean, askMic: () -> Unit, modifier: Modifier) {
     val context = LocalContext.current
     val state by HubDictation.state.collectAsState()
-    val listening = state.phase == HubPhase.LISTENING
-    val working = state.phase == HubPhase.WORKING
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Btn(
-                text = when {
-                    listening -> "Stop and save"
-                    working -> "Working"
-                    else -> "New dictation"
-                },
-                onClick = { if (micOn) HubDictation.toggle(context) else askMic() },
-                variant = if (listening) BtnVariant.ACCENT else BtnVariant.PRIMARY,
-                size = BtnSize.LG,
-                icon = Lucide.Mic,
-                enabled = !working,
-            )
-            Btn("Settings", openSettings, size = BtnSize.LG)
+    val levels = remember { mutableStateListOf<Float>().apply { repeat(WAVEFORM_BARS) { add(0f) } } }
+    LaunchedEffect(state.level, state.phase) {
+        if (state.phase == HubPhase.LISTENING) {
+            levels.add(state.level)
+            if (levels.size > WAVEFORM_BARS) levels.removeAt(0)
         }
-        if (state.phase != HubPhase.IDLE) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (listening) {
-                    Box(Modifier.width(96.dp).height(4.dp).clip(Pill).background(Tokens.ink.copy(alpha = 0.10f))) {
-                        Box(Modifier.fillMaxHeight().fillMaxWidth(state.level.coerceIn(0.04f, 1f)).background(Tokens.accent, Pill))
-                    }
-                }
-                Text(state.message, style = Type.small, color = if (state.phase == HubPhase.ERROR) Tokens.red else Tokens.inkSoft)
-            }
-        }
+    }
+    val bubble = when (state.phase) {
+        HubPhase.LISTENING -> BubbleState.RECORDING
+        HubPhase.WORKING -> BubbleState.PROCESSING
+        else -> BubbleState.IDLE
+    }
+    DictationBubble(
+        bubble, levels, "",
+        modifier
+            .clip(RoundedCornerShape(20.dp))
+            .clickable(
+                enabled = state.phase != HubPhase.WORKING,
+                role = Role.Button,
+                onClickLabel = if (state.phase == HubPhase.LISTENING) "Stop and save" else "New dictation",
+            ) { if (micOn) HubDictation.toggle(context) else askMic() },
+    )
+}
+
+/** The usage numbers, shown in Settings so Home stays a list. */
+@Composable
+fun UsageStats(history: List<DictationEntry>) {
+    val stats = remember(history) { statsFromHistory(history) }
+    val week = remember(stats) { lastNDays(stats.days, 7) }
+    val series = remember(history, week) { weeklySeries(history, week.map { it.first }) }
+    Column(Modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        StatGrid(stats, series)
+        WeekCard(week, stats.totalWords)
     }
 }
 
@@ -351,14 +332,28 @@ private fun StatGrid(stats: Stats, series: WeeklySeries) {
     val streak = currentStreak(stats.days)
     val wpm = wordsPerMinute(stats)
     val saved = timeSavedMinutes(stats)
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            StatCard("Words dictated", number(stats.totalWords), "${number(stats.totalDictations)} ${if (stats.totalDictations == 1) "dictation" else "dictations"}", Lucide.Type, series.words, Modifier.weight(1f))
-            StatCard("Day streak", "$streak", if (streak == 1) "one day, keep going" else "days in a row", Lucide.Flame, series.active, Modifier.weight(1f), Tokens.accent.copy(alpha = 0.10f))
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // One hero metric; the supporting numbers sit below it at half weight.
+        Card(Modifier.fillMaxWidth(), background = Tokens.accent.copy(alpha = 0.08f), padding = PaddingValues(18.dp)) {
+            Row(verticalAlignment = Alignment.Top) {
+                Column(Modifier.weight(1f)) {
+                    Eyebrow("Words dictated")
+                    Spacer(Modifier.height(8.dp))
+                    Text(number(stats.totalWords), style = Type.statNumber.copy(fontSize = 48.sp), color = Tokens.ink, maxLines = 1)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "${number(stats.totalDictations)} ${if (stats.totalDictations == 1) "dictation" else "dictations"} · ${if (streak == 1) "1-day streak" else "$streak-day streak"}",
+                        style = Type.hint,
+                        color = Tokens.muted,
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Sparkline(series.words, height = 48.dp)
+            }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             StatCard("Time saved", if (saved < 1) "<1m" else "${number(saved)}m", "vs. typing at 40 wpm", Lucide.Clock3, series.saved, Modifier.weight(1f))
-            StatCard("Speaking pace", if (wpm > 0) number(wpm) else "—", if (wpm > 0) "words per minute" else "dictate to measure", Lucide.Gauge, series.pace, Modifier.weight(1f), Tokens.lavender.copy(alpha = 0.12f))
+            StatCard("Speaking pace", if (wpm > 0) number(wpm) else "0", if (wpm > 0) "words per minute" else "dictate to measure", Lucide.Gauge, series.pace, Modifier.weight(1f), Tokens.lavender.copy(alpha = 0.12f))
         }
     }
 }
@@ -383,9 +378,9 @@ private fun StatCard(label: String, value: String, hint: String, icon: ImageVect
 }
 
 @Composable
-private fun Sparkline(values: List<Float>) {
+private fun Sparkline(values: List<Float>, height: Dp = 26.dp) {
     val max = maxOf(1f, values.maxOrNull() ?: 0f)
-    Row(Modifier.height(26.dp), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.Bottom) {
+    Row(Modifier.height(height), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.Bottom) {
         values.forEachIndexed { i, v ->
             Box(
                 Modifier.width(4.dp).fillMaxHeight(maxOf(0.08f, v / max)).clip(RoundedCornerShape(2.dp))
@@ -431,39 +426,6 @@ private fun WeekCard(week: List<Pair<LocalDate, Int>>, totalWords: Int) {
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun RhythmCard(stats: Stats, onTune: () -> Unit) {
-    Card(Modifier.fillMaxWidth(), background = Tokens.deep) {
-        Eyebrow("Your rhythm", color = Tokens.cream.copy(alpha = 0.6f))
-        Spacer(Modifier.height(8.dp))
-        Text(
-            if (stats.totalWords > 0) "${number(stats.totalWords)} words across ${number(stats.totalDictations)} ${if (stats.totalDictations == 1) "dictation" else "dictations"}." else "Your first sentence is one tap away.",
-            style = Type.sectionTitle.copy(fontSize = 24.sp, lineHeight = 26.sp), color = Tokens.cream,
-        )
-        Spacer(Modifier.height(16.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-            RhythmStat("${stats.refined}", "polished")
-            RhythmStat("${stats.corrections}", "learned edits")
-            RhythmStat("${stats.apps.size}", "apps")
-        }
-        Row(
-            Modifier.padding(top = 14.dp).clip(Pill).clickable(onClick = onTune).padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Text("Tune your style", style = Type.label.copy(fontSize = 13.sp), color = Tokens.cream.copy(alpha = 0.85f))
-            Icon(Lucide.ArrowUpRight, null, Modifier.size(14.dp), tint = Tokens.cream.copy(alpha = 0.85f))
-        }
-    }
-}
-
-@Composable
-private fun RhythmStat(value: String, label: String) {
-    Column {
-        Text(value, style = Type.statNumber.copy(fontSize = 28.sp), color = Tokens.cream)
-        Text(label.uppercase(), style = Type.eyebrow.copy(fontSize = 9.sp), color = Tokens.cream.copy(alpha = 0.55f))
     }
 }
 
@@ -591,8 +553,8 @@ private fun EntrySheet(entry: DictationEntry, suggestions: List<Suggestion>, onC
                     "Language" to entry.language.ifEmpty { "auto" },
                     "Cleanup" to entry.cleanup.label,
                     "Style" to entry.style.label,
-                    "ASR" to if (entry.asrMs > 0) "${entry.asrMs} ms" else "—",
-                    "Polish" to if (entry.formatMs > 0) "${entry.formatMs} ms" else "—",
+                    "ASR" to if (entry.asrMs > 0) "${entry.asrMs} ms" else "n/a",
+                    "Polish" to if (entry.formatMs > 0) "${entry.formatMs} ms" else "n/a",
                     "Model" to entry.model.ifEmpty { entry.provider },
                     "Total" to duration(entry.totalMs),
                 ).forEach { (k, v) ->

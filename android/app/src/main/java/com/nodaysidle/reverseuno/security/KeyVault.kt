@@ -9,6 +9,8 @@ import androidx.security.crypto.MasterKey
 
 enum class Secret(val prefKey: String, val label: String) {
     OPENROUTER("openrouter_api_key", "OpenRouter"),
+    DEEPGRAM("deepgram_api_key", "Deepgram"),
+    XAI("xai_api_key", "xAI"),
     ANTHROPIC("anthropic_api_key", "Anthropic"),
     DEEPSEEK("deepseek_api_key", "DeepSeek"),
 }

@@ -35,16 +35,14 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import com.nodaysidle.reverseuno.core.LANGUAGE_OPTIONS
 import com.nodaysidle.reverseuno.core.Store
 import com.nodaysidle.reverseuno.core.StoreData
-import com.nodaysidle.reverseuno.core.statsFromHistory
 import com.nodaysidle.reverseuno.dictation.HubDictation
 import com.nodaysidle.reverseuno.dictation.HubPhase
 import com.nodaysidle.reverseuno.security.KeyVault
 import com.nodaysidle.reverseuno.security.Secret
-import com.nodaysidle.reverseuno.service.VoiceAccessibilityService
+import com.nodaysidle.reverseuno.service.BubbleRuntime
 import com.nodaysidle.reverseuno.stt.ProviderApi
 import com.nodaysidle.reverseuno.stt.SttModel
 import kotlinx.coroutines.launch
-import java.text.NumberFormat
 
 private sealed interface KeyTest {
     data object Idle : KeyTest
@@ -68,6 +66,7 @@ fun SettingsScreen(data: StoreData) {
     var resume by remember { mutableIntStateOf(0) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { resume++ }
     val accessibilityOn = remember(resume) { SystemSetup.isAccessibilityOn(context) }
+    val overlayOn = remember(resume) { SystemSetup.hasOverlay(context) }
     val batteryOk = remember(resume) { SystemSetup.isBatteryUnrestricted(context) }
     var micGranted by remember(resume) { mutableStateOf(SystemSetup.hasMic(context)) }
     val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -98,16 +97,15 @@ fun SettingsScreen(data: StoreData) {
     ) {
         item {
             PageHeader(
-                eyebrow = "Everything local, except audio in flight",
                 title = "Settings",
                 sub = "The bubble is the whole interface. Everything else is here when you want to tune it.",
-                aside = {
-                    Chip(
-                        "${NumberFormat.getIntegerInstance().format(statsFromHistory(data.history).totalWords)} words",
-                        bg = Tokens.greenSoft, fg = Tokens.green, dot = Tokens.green,
-                    )
-                },
             )
+        }
+
+        item {
+            Section("Usage", "Counted from the dictations stored on this phone.") {
+                UsageStats(data.history)
+            }
         }
 
         item {
@@ -119,13 +117,19 @@ fun SettingsScreen(data: StoreData) {
                 ) {
                     Toggle(settings.bubble.enabled, {
                         Store.updateSettings { s -> s.copy(bubble = s.bubble.copy(enabled = it)) }
-                        VoiceAccessibilityService.updateOverlayVisibility(it)
+                        BubbleRuntime.setEnabled(context, it)
                     }, "Floating bubble")
                 }
                 SettingRow("Accessibility service", "Lets the bubble see text fields and insert what you say.") {
                     Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         StatusChip(accessibilityOn, "On", "Off")
                         Btn("Open settings", { SystemSetup.openAccessibility(context) }, size = BtnSize.SM)
+                    }
+                }
+                SettingRow("Display over other apps", "Keeps the bubble alive outside reverseuno, even if the accessibility service restarts.") {
+                    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        StatusChip(overlayOn, "On", "Off")
+                        if (!overlayOn) Btn("Allow", { SystemSetup.openOverlay(context) }, size = BtnSize.SM)
                     }
                 }
                 SettingRow("Microphone", "Audio is recorded only while the bubble is listening.") {
@@ -164,11 +168,33 @@ fun SettingsScreen(data: StoreData) {
         }
 
         item {
-            Section("Providers", "Keys stay in this phone's keystore. Audio goes to OpenRouter. Cleanup goes to Claude Haiku, with DeepSeek as a fallback.") {
-                SettingRow("Speech-to-text", "OpenRouter only, multilingual models.", divider = false, stacked = true) {
+            Section("Providers", "Keys stay in this phone's keystore. Audio streams to the selected provider; OpenRouter is the one-shot fallback. Cleanup goes to Claude Haiku, with DeepSeek as a fallback.") {
+                SettingRow("Live transcription", "Streams while you speak and shows interim words. Turn it off to send one file after you stop.", divider = false, stacked = true) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                        Toggle(
+                            settings.stt.streaming,
+                            { v -> Store.updateSettings { it.copy(stt = it.stt.copy(streaming = v)) } },
+                            "Stream audio",
+                        )
+                        if (settings.stt.streaming) {
+                            Select(
+                                settings.stt.provider,
+                                listOf("deepgram" to "Deepgram Nova-3", "xai" to "xAI Grok Voice"),
+                                { v -> Store.updateSettings { it.copy(stt = it.stt.copy(provider = v)) } },
+                            )
+                        }
+                    }
+                }
+                SettingRow("Deepgram", "Streaming key (dg-…). Nova-3 with keyterm prompting.", stacked = true) {
+                    KeyRow(Secret.DEEPGRAM, "dg-…", resume)
+                }
+                SettingRow("xAI", "Streaming key (xai-…). Grok Voice Transcribe 2.0, 38 languages, smart turn.", stacked = true) {
+                    KeyRow(Secret.XAI, "xai-…", resume)
+                }
+                SettingRow("Speech-to-text fallback", "One-shot OpenRouter request when streaming is off or fails.", stacked = true) {
                     KeyRow(Secret.OPENROUTER, "sk-or-…", resume)
                 }
-                SettingRow("Transcription model", "Loaded live from OpenRouter.") {
+                SettingRow("Fallback model", "Loaded live from OpenRouter.") {
                     val current = settings.stt.model
                     val options = sttModels.map { it.id to it.label }.let { list ->
                         if (list.any { it.first == current }) list else listOf(current to current) + list
