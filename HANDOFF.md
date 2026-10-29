@@ -21,6 +21,26 @@ reverseuno: the Hub and Overlay are native Qt windows (`qt/`, binary `reverseuno
 - Verified live with the user's microphone: 4 English dictations (2 into Velocitty, 2 into omawrite) were transcribed, cleaned up and inserted with no errors or cores. Timings: Whisper 1.0–4.7 s, Haiku 0.75–1.2 s, about 2–3 s from key release to text. 116 engine tests pass, and the typecheck is clean. Real-API checks: both keys pass `testProvider`; Whisper transcribed the e2e captures; Haiku cleaned up the `test-format` samples.
 - Keys: OpenRouter comes from `~/.config/whisper-bar/config.env`, Anthropic from the app's `secrets.json` (`plain:`). The engine's own environment has neither key.
 
+## Android app (2026-10-29)
+- The dark/white SuperWhisper-style UI and streaming STT lived only on the unpushed branch `feat/android-streaming` and an installed debug build (`com.nodaysidle.reverseuno.debug`). Both are now merged into `master`. The debug app is uninstalled, and the release app `com.nodaysidle.reverseuno` was updated in place with its data kept.
+- Redesign on top, at the user's request (antislop dials ENERGY 1 / RHYTHM 1 / MOTION 1):
+  - No logo or name bar.
+  - Home shows only a status line, search and the dictation list. The stat cards moved to Settings > Usage.
+  - No uppercase eyebrows above page titles.
+  - The Style tab uses a pen icon.
+  - No emoji or em dashes in the UI copy.
+- The floating bubble is a rounded square drawn with the logo's five bars, the center bar in the logo's orange-red `#F45B36`, the one accent. It replaced the round pill with a stock mic. The same mark is the in-app record button.
+- The bubble's visibility, keyboard anchoring, tap/long-press and edge snapping were already in place on a Wispr Flow model and were left unchanged.
+- Verified on the Mi 10T (stock MIUI 14, bootloader locked, verified boot green). A dictation through the bubble into Messages was inserted (OpenRouter `gpt-4o-mini-transcribe` + Anthropic cleanup), with no crashes. The 53 Android unit tests pass.
+- The phone still uses `gpt-4o-mini-transcribe`; it was not switched to Whisper like the desktop. The bubble can cover a field's left-side button (Messages "+"); dragging it to the right edge works around this.
+- Cleaned up:
+  - the second worktree `reverseuno-android`
+  - the stale `/tmp` worktrees and test folders
+  - the `.superpowers/` ledger
+  - the merged branches
+  - the deleted, user-approved branches `feat/phone-provider-palette` (xAI/DeepSeek/phone-provider experiment) and `chore/claude-canary`
+  - on the phone: the agent's `/data/local/tmp/reverseuno.apk`, its UI dumps and the dead accessibility entry
+
 ## What changed from the legacy version (Electron + React windows, up to `408539a`)
 Against `408539a`, the changes under `src qt tests scripts packaging package.json` come to about +5.3k and −7.3k lines across 100 files.
 
@@ -76,4 +96,3 @@ Against `408539a`, the changes under `src qt tests scripts packaging package.jso
 
 ## Open questions
 - Keys without a keyring: refuse to save, or prompt?
-- Delete the git-ignored `.superpowers/sdd/2026-10-29-qt-windows/` ledger?
