@@ -29,6 +29,7 @@ vi.mock('../src/main/stt/openrouter', () => ({
 vi.mock('../src/main/stt/deepgram', () => ({ DeepgramStream: vi.fn(), transcribeBuffer: vi.fn() }))
 vi.mock('../src/main/format', () => ({
   needsFormatting: vi.fn(() => true),
+  warmFormatter: vi.fn(),
   formatTranscript: vi.fn(async (raw: string) => ({ text: `${raw}.`, formatted: true, latencyMs: 5 }))
 }))
 

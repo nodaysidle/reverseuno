@@ -69,7 +69,7 @@ export const DEFAULT_APP_RULES: AppRule[] = [
 
 export const DEFAULT_SETTINGS: Settings = {
   stt: {
-    provider: 'openrouter',
+    provider: 'deepgram',
     model: 'nova-3',
     openrouterModel: 'openai/gpt-4o-mini-transcribe',
     language: 'multi',

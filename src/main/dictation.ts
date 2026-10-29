@@ -6,7 +6,7 @@ import { pcm16ToWav } from '@shared/wav'
 import type { DictationEntry, DictationState, Settings, StateEvent } from '@shared/types'
 import { DeepgramStream, transcribeBuffer, type SttResult } from './stt/deepgram'
 import { transcribeOpenRouter } from './stt/openrouter'
-import { formatTranscript, needsFormatting } from './format'
+import { formatTranscript, needsFormatting, warmFormatter } from './format'
 import { getActiveWindow, insertText, snapshotClipboard, type ActiveWindow, type ClipboardSnapshot } from './paste'
 import { log } from './logger'
 import type { Secrets } from './secrets'
@@ -238,6 +238,7 @@ export class DictationEngine {
         void this.stop()
       }, MAX_RECORDING_MS)
 
+      warmFormatter(settings, this.deps.secrets.get('anthropic'))
       log.info('[dictation] started', { insert, app: session.appClass, language: session.language })
       return { ok: true, state: 'listening' }
     } finally {
@@ -401,6 +402,8 @@ export class DictationEngine {
     if (session.maxTimer) clearTimeout(session.maxTimer)
     session.stopping = true
     session.releasedAt = Date.now()
+    // An idle connection closes after a few seconds, so warm it again for the cleanup that follows.
+    warmFormatter(this.deps.store.settings, this.deps.secrets.get('anthropic'))
     // Independent of the transcript, so let it run while we transcribe.
     if (session.insert && this.deps.store.settings.insert.mode === 'paste') {
       session.snapshot = snapshotClipboard()

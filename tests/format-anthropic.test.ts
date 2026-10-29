@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const create = vi.fn()
+const list = vi.fn(async () => ({ data: [] }))
 const clientOptions: unknown[] = []
 
 vi.mock('@anthropic-ai/sdk', () => {
@@ -17,7 +18,7 @@ vi.mock('@anthropic-ai/sdk', () => {
     static APIError = APIError
     static AuthenticationError = AuthenticationError
     messages = { create }
-    models = { list: vi.fn() }
+    models = { list }
     constructor(options: unknown) {
       clientOptions.push(options)
     }
@@ -25,7 +26,7 @@ vi.mock('@anthropic-ai/sdk', () => {
   return { default: Anthropic }
 })
 
-const { formatTranscript } = await import('../src/main/format')
+const { formatTranscript, warmFormatter } = await import('../src/main/format')
 const { DEFAULT_SETTINGS } = await import('../src/shared/defaults')
 const Anthropic = (await import('@anthropic-ai/sdk')).default
 
@@ -65,5 +66,21 @@ describe('formatTranscript with the anthropic provider', () => {
     create.mockResolvedValue({ stop_reason: 'refusal', content: [] })
     const result = await formatTranscript('hello there friend', settings, 'sk-ant-test', context)
     expect(result).toMatchObject({ text: 'hello there friend', formatted: false })
+  })
+})
+
+describe('warmFormatter', () => {
+  beforeEach(() => list.mockClear())
+
+  it('opens a connection with a free models request when cleanup goes to Anthropic', () => {
+    warmFormatter(settings, 'sk-ant-test')
+    expect(list).toHaveBeenCalledWith({ limit: 1 })
+  })
+
+  it('does nothing without a key, with cleanup off, or for another provider', () => {
+    warmFormatter(settings, '')
+    warmFormatter({ ...settings, format: { ...settings.format, enabled: false } }, 'sk-ant-test')
+    warmFormatter({ ...settings, format: { ...settings.format, provider: 'openrouter' } }, 'sk-ant-test')
+    expect(list).not.toHaveBeenCalled()
   })
 })

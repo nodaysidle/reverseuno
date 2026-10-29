@@ -50,7 +50,8 @@ describe('needsFormatting', () => {
   })
 
   it('formats longer text, stronger cleanup and custom instructions', () => {
-    expect(needsFormatting('please send me the report tomorrow', settings({}))).toBe(true)
+    expect(needsFormatting('please send me the report tomorrow', settings({}))).toBe(false)
+    expect(needsFormatting('please send me the quarterly report before the meeting tomorrow', settings({}))).toBe(true)
     expect(needsFormatting('hello there', settings({ cleanup: 'medium' }))).toBe(true)
     expect(needsFormatting('hello there', settings({ customInstructions: 'use emoji' }))).toBe(true)
   })

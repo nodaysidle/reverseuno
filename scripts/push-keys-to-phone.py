@@ -29,6 +29,7 @@ WHISPERBAR = HOME / ".config/whisper-bar/config.env"
 # Android Secret enum name -> (desktop secret name, env var)
 KEYS = {
     "OPENROUTER": ("openrouter", "OPENROUTER_API_KEY"),
+    "DEEPGRAM": ("deepgram", "DEEPGRAM_API_KEY"),
     "ANTHROPIC": ("anthropic", "ANTHROPIC_API_KEY"),
     "DEEPSEEK": ("deepseek", "DEEPSEEK_API_KEY"),
 }

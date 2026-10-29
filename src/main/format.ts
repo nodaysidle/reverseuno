@@ -6,7 +6,7 @@ import type { CleanupLevel, Settings, WritingStyle } from '@shared/types'
 // Spoken fillers the light cleanup exists to remove; a short transcript without
 // them gains nothing from a network round-trip.
 const FILLER = /\b(u+m+|u+h+|e+r+m*|h+m+|you know|i mean|like)\b/i
-const SHORT_UTTERANCE_WORDS = 3
+const SHORT_UTTERANCE_WORDS = 8
 
 export function needsFormatting(raw: string, settings: Settings): boolean {
   if (!settings.format.enabled || settings.format.cleanup === 'none') return false
@@ -204,6 +204,16 @@ async function completeWithAnthropic(
     }
     throw error
   }
+}
+
+/**
+ * Opens the connection to Anthropic ahead of the cleanup request, so that request skips the
+ * TLS handshake. fetch pools connections per origin, so any client's request reuses it.
+ * The models list is free; a failure here only means no head start.
+ */
+export function warmFormatter(settings: Settings, apiKey: string): void {
+  if (!settings.format.enabled || settings.format.provider !== 'anthropic' || !apiKey) return
+  new Anthropic({ apiKey, timeout: 3000, maxRetries: 0 }).models.list({ limit: 1 }).catch(() => {})
 }
 
 export async function validateAnthropicKey(apiKey: string): Promise<{ ok: boolean; message: string }> {

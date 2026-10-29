@@ -9,7 +9,7 @@ import kotlinx.coroutines.CancellationException
 // Port of src/main/format.ts. The prompt text is kept identical to the desktop app.
 
 private val FILLER = Regex("\\b(u+m+|u+h+|e+r+m*|h+m+|you know|i mean|like)\\b", RegexOption.IGNORE_CASE)
-private const val SHORT_UTTERANCE_WORDS = 3
+private const val SHORT_UTTERANCE_WORDS = 8
 
 fun needsFormatting(raw: String, settings: Settings): Boolean {
     val format = settings.format
