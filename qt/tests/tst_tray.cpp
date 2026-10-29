@@ -135,6 +135,26 @@ private slots:
         third.kill();
         third.waitForFinished(5000);
     }
+    void unusableRuntimeDirStillRuns()
+    {
+        QTemporaryDir tmp;
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert("XDG_RUNTIME_DIR", tmp.filePath("missing"));
+        env.insert("QT_QPA_PLATFORM", "offscreen");
+        env.insert("REVERSEUNO_CONTROL_FILE", tmp.filePath("control.json"));
+        env.insert("DBUS_SESSION_BUS_ADDRESS", "unix:path=" + tmp.filePath("no-bus"));
+        env.remove("WAYLAND_DISPLAY");
+        env.remove("QT_QPA_PLATFORMTHEME");
+        QProcess ui;
+        ui.setProcessEnvironment(env);
+        ui.setProcessChannelMode(QProcess::ForwardedErrorChannel);
+        ui.start(UI_BIN);
+        QVERIFY(ui.waitForStarted());
+        QTest::qWait(500);
+        QCOMPARE(ui.state(), QProcess::Running);
+        ui.kill();
+        ui.waitForFinished(5000);
+    }
 };
 
 QTEST_GUILESS_MAIN(TstTray)

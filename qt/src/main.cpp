@@ -35,8 +35,12 @@ int main(int argc, char *argv[])
     QLockFile lock(lockPath());
     lock.setStaleLockTime(0); // never stale by age; a dead owner's lock is still taken over
     if (!lock.tryLock()) {
-        qInfo().noquote() << "reverseuno-ui already running:" << lock.fileName();
-        return kAlreadyRunningExit;
+        if (lock.error() == QLockFile::LockFailedError) {
+            qInfo().noquote() << "reverseuno-ui already running:" << lock.fileName();
+            return kAlreadyRunningExit;
+        }
+        // Missing or unwritable runtime dir: run unguarded rather than not at all.
+        qWarning().noquote() << "reverseuno-ui: cannot create" << lock.fileName() << "; running without the lock";
     }
 
     QGuiApplication app(argc, argv);
