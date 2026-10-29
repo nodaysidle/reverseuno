@@ -11,6 +11,7 @@ license=(MIT)
 # hyprctl. Qt app: ldd of reverseuno-ui, plus qt6-wayland for the Wayland platform plugin.
 depends=(electron44 jq curl wtype wl-clipboard hyprland
          qt6-base qt6-declarative qt6-wayland layer-shell-qt)
+optdepends=('python: scripts/install-hyprland.py, the Right Super binds')
 makedepends=(git nodejs npm)
 checkdepends=(python)
 source=("$pkgname::git+file://${REVERSEUNO_REPO:-$startdir/..}")

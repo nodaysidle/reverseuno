@@ -325,7 +325,8 @@ private slots:
                     QMetaObject::invokeMethod(findItem(wins.hub->contentItem(), "entryText")->parentItem()->parentItem(), "clicked");
                 }
                 if (p == QLatin1String("settings")) wins.hub->resize(980, 2300); // the whole page in one picture
-                QTest::qWait(200);
+                // Settings' list calls fail with no engine; let that notice fade (4 s) before the picture.
+                QTest::qWait(p == QLatin1String("settings") ? 4300 : 200);
                 wins.hub->grabWindow().save(qEnvironmentVariable("HUB_SNAPSHOT") + "/hub-" + p + ".png");
             }
         }
