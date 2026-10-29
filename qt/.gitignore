@@ -9,5 +9,6 @@ qrc_*
 /tests/tst_*/tst_theme
 /tests/tst_*/tst_engineclient
 /tests/tst_*/tst_overlay
+/tests/tst_*/tst_history
 target_wrapper.sh
 *.moc

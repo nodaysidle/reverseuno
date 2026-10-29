@@ -6,6 +6,7 @@
 #include <QTimer>
 #include <QVariant>
 #include <QVariantMap>
+#include <functional>
 
 #include "SseParser.h"
 
@@ -20,7 +21,10 @@ public:
     bool connected() const { return m_connected; }
     int connectAttempts() const { return m_attempts; }
 
+    using Done = std::function<void(const QVariant &result, const QString &error)>;
     Q_INVOKABLE void call(const QString &method, const QVariantList &args = {});
+    // Same, and `done` gets this call's own reply (callFinished carries no args to match on).
+    void call(const QString &method, const QVariantList &args, Done done);
 
 signals:
     void connectedChanged(bool connected);

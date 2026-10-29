@@ -108,21 +108,29 @@ void EngineClient::connectNow()
 
 void EngineClient::call(const QString &method, const QVariantList &args)
 {
+    call(method, args, Done());
+}
+
+void EngineClient::call(const QString &method, const QVariantList &args, Done done)
+{
     Control c;
     if (!readControl(c)) {
-        emit callFinished(method, QVariant(), QStringLiteral("engine not running"));
+        const QString error = QStringLiteral("engine not running");
+        if (done) done(QVariant(), error);
+        emit callFinished(method, QVariant(), error);
         return;
     }
     QNetworkRequest r = request(c, "/rpc/" + method);
     r.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     const QByteArray body = QJsonDocument(QJsonObject{{"args", QJsonArray::fromVariantList(args)}}).toJson(QJsonDocument::Compact);
     QNetworkReply *reply = m_net.post(r, body);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, method] {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, method, done] {
         reply->deleteLater();
         const QJsonObject o = QJsonDocument::fromJson(reply->readAll()).object();
-        if (o.value("ok").toBool())
-            emit callFinished(method, o.value("result").toVariant(), QString());
-        else
-            emit callFinished(method, QVariant(), o.value("error").toString(reply->errorString()));
+        const bool ok = o.value("ok").toBool();
+        const QVariant result = ok ? o.value("result").toVariant() : QVariant();
+        const QString error = ok ? QString() : o.value("error").toString(reply->errorString());
+        if (done) done(result, error);
+        emit callFinished(method, result, error);
     });
 }
