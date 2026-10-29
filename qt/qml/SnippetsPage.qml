@@ -37,7 +37,7 @@ Item {
                 id: add
                 text: "Add"
                 highlighted: true
-                enabled: trigger.text.trim() !== "" && content.text.trim() !== ""
+                enabled: hub.connected && trigger.text.trim() !== "" && content.text.trim() !== ""
                 onClicked: {
                     if (!enabled) return
                     hub.run("snippetAdd", [trigger.text.trim(), content.text])
@@ -121,7 +121,7 @@ Item {
                         Button {
                             text: "Save"
                             highlighted: true
-                            enabled: editTrigger.text.trim() !== "" && editContent.text.trim() !== ""
+                            enabled: hub.connected && editTrigger.text.trim() !== "" && editContent.text.trim() !== ""
                             onClicked: {
                                 hub.run("snippetUpdate", [row.modelData.id,
                                          { trigger: editTrigger.text.trim(), content: editContent.text }])

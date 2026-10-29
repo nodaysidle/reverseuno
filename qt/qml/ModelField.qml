@@ -19,7 +19,9 @@ ComboBox {
         else if (next !== saved) hub.set(path, next)
     }
     onSavedChanged: if (!activeFocus) sync()
+    // ComboBox picks item 0 when a model arrives; put the saved id back.
     onCountChanged: sync()
+    onModelChanged: sync()
     Component.onCompleted: sync()
     onAccepted: commit(editText)
     onActivated: function (index) { commit(textAt(index)) }

@@ -47,7 +47,7 @@ Item {
                 id: add
                 text: "Add"
                 highlighted: true
-                enabled: word.text.trim() !== ""
+                enabled: hub.connected && word.text.trim() !== ""
                 onClicked: {
                     if (!enabled) return
                     const args = correction.text.trim() ? [word.text.trim(), correction.text.trim()] : [word.text.trim()]
@@ -134,7 +134,7 @@ Item {
                     Button {
                         text: "Save"
                         highlighted: true
-                        enabled: editWord.text.trim() !== ""
+                        enabled: hub.connected && editWord.text.trim() !== ""
                         // An empty correction clears it, turning the entry into a Spelling.
                         onClicked: {
                             hub.run("dictionaryUpdate", [row.modelData.id,

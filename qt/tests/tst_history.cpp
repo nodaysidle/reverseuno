@@ -1,6 +1,9 @@
 #include <QtTest>
 #include <QGuiApplication>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QQmlApplicationEngine>
+#include <QQmlComponent>
 #include <QQmlContext>
 #include <QQuickItem>
 #include <QQuickWindow>
@@ -27,6 +30,18 @@ static QQuickItem *findItem(QQuickItem *root, const QString &name)
         if (QQuickItem *hit = findItem(child, name)) return hit;
     return nullptr;
 }
+
+// Stands in for EngineClient::call's serialisation of QML-built args.
+class Probe : public QObject
+{
+    Q_OBJECT
+public:
+    QByteArray last;
+    Q_INVOKABLE void call(const QString &, const QVariantList &args)
+    {
+        last = QJsonDocument(QJsonArray::fromVariantList(args)).toJson(QJsonDocument::Compact);
+    }
+};
 
 class TstHistory : public QObject
 {
@@ -132,6 +147,36 @@ private slots:
         QCOMPARE(calls.first().at(0).toString(), QString("updateSettings"));
         QCOMPARE(notices.count(), 1); // engine down: the failure is said, not swallowed
         QCOMPARE(notices.first().at(1).toBool(), false);
+    }
+
+    void qmlObjectArgsSerialiseAsJsonObjects()
+    {
+        Probe probe;
+        QQmlEngine qml;
+        qml.rootContext()->setContextProperty("probe", &probe);
+        QQmlComponent c(&qml);
+        c.setData("import QtQml\nQtObject { Component.onCompleted: probe.call('dictionaryUpdate', ['d1', { starred: true, word: 'x' }]) }", QUrl());
+        std::unique_ptr<QObject> o(c.create());
+        QVERIFY2(o, qPrintable(c.errorString()));
+        QCOMPARE(probe.last, QByteArray(R"(["d1",{"starred":true,"word":"x"}])"));
+    }
+
+    void modelFieldKeepsSavedValueWhenListArrives()
+    {
+        QTest::failOnWarning();
+        EngineClient client("/nonexistent/control.json");
+        HubController hub(&client);
+        QQmlEngine qml;
+        qml.rootContext()->setContextProperty("hub", &hub);
+        QQmlComponent c(&qml, QUrl::fromLocalFile(QML_DIR "/ModelField.qml"));
+        for (const QString &saved : {QString("b"), QString("not-in-list")}) {
+            std::unique_ptr<QObject> f(c.createWithInitialProperties({{"saved", saved}, {"model", QStringList()}}));
+            QVERIFY2(f, qPrintable(c.errorString()));
+            QCOMPARE(f->property("editText").toString(), saved);
+            f->setProperty("model", QStringList{"a", "b", "c"});
+            QCOMPARE(f->property("editText").toString(), saved);
+            QTRY_COMPARE(f->property("editText").toString(), saved); // and after any deferred reset
+        }
     }
 
     void markupInTextStaysLiteral()

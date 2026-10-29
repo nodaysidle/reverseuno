@@ -263,7 +263,7 @@ Item {
                 Act {
                     text: "Save"
                     highlighted: true
-                    enabled: editor.text.trim() !== ""
+                    enabled: hub.connected && editor.text.trim() !== ""
                     onClicked: {
                         if (editor.text !== page.current.text)
                             hub.run("historyUpdate", [page.selectedId, editor.text], "Final text updated")
