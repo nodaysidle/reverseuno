@@ -41,9 +41,19 @@ export interface ApiDeps {
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
 
-// Patch must mirror DEFAULT_SETTINGS: no unknown keys, same typeof/array-ness at every level.
-// shortcut: array items and string enums are not checked (typeof only); tighten if the HTTP surface needs it.
+// A paste rule as the paste path reads it; a malformed one would break autopaste for every app.
+const isAppRule = (v: unknown): boolean =>
+  isRecord(v) &&
+  Object.keys(v).every((key) => key === 'pattern' || key === 'keys' || key === 'restoreDelayMs') &&
+  typeof v.pattern === 'string' &&
+  typeof v.keys === 'string' &&
+  (v.restoreDelayMs === undefined || typeof v.restoreDelayMs === 'number')
+
+// Patch must mirror DEFAULT_SETTINGS: no unknown keys, same typeof/array-ness at every level;
+// insert.appRules items must be AppRules.
+// shortcut: string enums are not checked (typeof only); tighten if the HTTP surface needs it.
 function matchesShape(patch: unknown, shape: unknown): boolean {
+  if (shape === DEFAULT_SETTINGS.insert.appRules) return Array.isArray(patch) && patch.every(isAppRule)
   if (isRecord(shape)) {
     return (
       isRecord(patch) &&

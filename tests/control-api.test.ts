@@ -162,6 +162,22 @@ describe('settings validation', () => {
     }
   })
 
+  it('an app rule without keys (or with a wrong field) is rejected and leaves settings unchanged', () => {
+    const before = structuredClone(settings)
+    for (const rule of [{ pattern: 'x' }, { pattern: 'x', keys: 1 }, { pattern: 'x', keys: 'ctrl-v', restoreDelayMs: '500' }, { pattern: 'x', keys: 'ctrl-v', bogus: 1 }, 'x', null]) {
+      expect(() => api.updateSettings!({ insert: { appRules: [{ pattern: 'ok', keys: 'ctrl-v' }, rule] } })).toThrow('invalid settings')
+    }
+    expect(settings).toEqual(before)
+  })
+
+  it('valid app rule lists are accepted: the defaults and what the Qt Hub sends', () => {
+    expect(() => api.updateSettings!({ insert: { appRules: DEFAULT_SETTINGS.insert.appRules } })).not.toThrow()
+    expect(() =>
+      api.updateSettings!({ insert: { appRules: [{ pattern: 'my-app', keys: 'ctrl-v', restoreDelayMs: 500 }, { pattern: 'kitty', keys: 'shift-insert' }] } })
+    ).not.toThrow()
+    expect(() => api.updateSettings!({ insert: { appRules: [] } })).not.toThrow()
+  })
+
   it('a valid nested patch (format.cleanup: "light") is applied', () => {
     settings.format.cleanup = 'none'
     expect(api.updateSettings!({ format: { cleanup: 'light' } })).toMatchObject({ format: { cleanup: 'light' } })
