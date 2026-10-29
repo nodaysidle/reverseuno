@@ -6,7 +6,6 @@ function entry(partial: Partial<DictationEntry>): DictationEntry {
   return {
     id: 'x',
     text: 'hello world',
-    rawText: 'hello world',
     createdAt: Date.now(),
     provider: 'deepgram',
     model: 'nova-3',

@@ -204,7 +204,7 @@ StoreData {
 }
 ```
 
-`DictationEntry` carries: `text`, `rawText`, timestamps, provider/model/language,
+`DictationEntry` carries: `text`, timestamps, provider/model/language,
 `durationMs`, `asrMs`, `formatMs`, `totalMs`, app class/title, cleanup/style,
 `inserted`, `error`, `wordCount`, optional `editedText`/`editDistance`, `flagged`.
 
@@ -304,7 +304,7 @@ Hub:
   Insertion (mode/keys/delay/toggles/app rules), Overlay (rest/position/offset/hide/
   sounds), Appearance (Omarchy/Paper), History (limit/auto-learn/export/clear),
   System (login/start/quit), About.
-- Detail drawer: full text, edit, copy, insert, delete, raw transcript, metadata,
+- Detail drawer: full text, edit, copy, insert, delete, metadata,
   suggestions.
 - Window: frameless, 1180×820, custom titlebar, hide-on-close (app keeps running).
 - Theme (`appearance.theme`, default `omarchy`): the main process reads

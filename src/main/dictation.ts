@@ -518,7 +518,6 @@ export class DictationEngine {
     const entry: DictationEntry = {
       id: session.id,
       text: final,
-      rawText: raw,
       createdAt: Date.now(),
       provider: stt.provider,
       model: stt.model,

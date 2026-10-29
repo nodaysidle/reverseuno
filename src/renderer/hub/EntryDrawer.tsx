@@ -23,14 +23,12 @@ export function EntryDrawer({
 }) {
   const [editing, setEditing] = useState(false)
   const [text, setText] = useState('')
-  const [showRaw, setShowRaw] = useState(false)
   const [saving, setSaving] = useState(false)
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
 
   useEffect(() => {
     setText(entry?.text ?? '')
     setEditing(false)
-    setShowRaw(false)
     setSuggestions([])
   }, [entry])
 
@@ -187,14 +185,6 @@ export function EntryDrawer({
               ))}
             </div>
           ) : null}
-
-          <div className="drawer-raw">
-            <button type="button" className="drawer-raw-toggle" onClick={() => setShowRaw((value) => !value)}>
-              <span>{showRaw ? 'Hide' : 'Show'} raw transcript</span>
-              <span className="pill">{showRaw ? 'raw' : 'polished'}</span>
-            </button>
-            {showRaw ? <p className="drawer-raw-text">{entry.rawText}</p> : null}
-          </div>
 
           <div className="drawer-meta">
             <div>

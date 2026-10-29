@@ -113,7 +113,6 @@ export interface ModelOption {
 export interface DictationEntry {
   id: string
   text: string
-  rawText: string
   createdAt: number
   provider: string
   model: string
@@ -200,7 +199,6 @@ export interface StateEvent {
   message?: string
   interim?: string
   text?: string
-  rawText?: string
   appClass?: string
   appTitle?: string
   startedAt?: number

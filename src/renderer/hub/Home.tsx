@@ -298,7 +298,7 @@ export function Home({
     const needle = query.trim().toLowerCase()
     if (!needle) return data.history
     return data.history.filter((entry) =>
-      `${entry.text} ${entry.rawText} ${entry.appClass} ${entry.appTitle}`.toLowerCase().includes(needle)
+      `${entry.text} ${entry.appClass} ${entry.appTitle}`.toLowerCase().includes(needle)
     )
   }, [data.history, query])
 

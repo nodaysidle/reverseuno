@@ -1855,35 +1855,6 @@ input[type='number']::-webkit-inner-spin-button {
   display: flex;
   gap: 4px;
 }
-.drawer-raw {
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--surface) 35%, transparent);
-  padding: 10px 12px;
-  margin-bottom: 14px;
-}
-.drawer-raw-toggle {
-  width: 100%;
-  border: 0;
-  background: transparent;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  font-size: 11px;
-  color: var(--ink-soft);
-  padding: 0;
-  text-align: left;
-}
-.drawer-raw-text {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--line);
-  font-size: 12px;
-  line-height: 1.55;
-  color: var(--muted);
-  white-space: pre-wrap;
-}
 .drawer-meta {
   display: grid;
   grid-template-columns: 1fr 1fr;

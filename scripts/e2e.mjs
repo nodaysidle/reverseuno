@@ -382,7 +382,6 @@ async function main() {
     stop,
     input: 'chromium-fake-audio',
     transcript: stop?.result?.text ?? null,
-    rawText: entry?.rawText ?? null,
     output: normalise(output),
     clipboard: { before: clipboardBefore, after: clipboardAfter },
     sttProvider,
