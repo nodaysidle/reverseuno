@@ -71,6 +71,8 @@ void TrayController::quit()
 
 // On Wayland Qt always makes a D-Bus StatusNotifierItem and (re)registers it whenever a
 // watcher (Waybar) appears, so a late or restarted tray host is handled by Qt itself.
+// It registers under its unique bus name (":1.N"): `busctl list` shows no StatusNotifierItem
+// name for it; the watcher's RegisteredStatusNotifierItems property lists it.
 // No tray host at all: the icon just never shows; nothing else depends on it.
 void loadTray(QQmlEngine &qml, const QString &file)
 {

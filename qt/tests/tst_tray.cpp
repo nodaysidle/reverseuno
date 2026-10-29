@@ -1,4 +1,7 @@
 #include <QtTest>
+#include <QDBusConnection>
+#include <QDBusInterface>
+#include <QDBusReply>
 #include <QProcess>
 #include <QTemporaryDir>
 
@@ -7,6 +10,22 @@
 #include "Tray.h"
 
 static QVariantMap stateEv(const QString &s) { return {{"type", "state"}, {"state", QVariantMap{{"state", s}}}}; }
+
+// Stands in for the bar's org.kde.StatusNotifierWatcher (quickshell, Waybar).
+class FakeWatcher : public QObject
+{
+    Q_OBJECT
+    Q_CLASSINFO("D-Bus Interface", "org.kde.StatusNotifierWatcher")
+    Q_PROPERTY(bool IsStatusNotifierHostRegistered READ hostRegistered)
+    Q_PROPERTY(int ProtocolVersion READ protocolVersion)
+public:
+    bool hostRegistered() const { return true; }
+    int protocolVersion() const { return 0; }
+    QString item;
+public slots:
+    void RegisterStatusNotifierItem(const QString &service) { item = service; }
+    void RegisterStatusNotifierHost(const QString &) {}
+};
 
 class TstTray : public QObject
 {
@@ -154,6 +173,76 @@ private slots:
         QCOMPARE(ui.state(), QProcess::Running);
         ui.kill();
         ui.waitForFinished(5000);
+    }
+    // The real app on its own bus: Qt registers the item under its unique name (":1.N"), not a
+    // well-known org.kde.StatusNotifierItem-<pid>-1, so `busctl list` never shows an SNI name.
+    void trayRegistersWithTheWatcher()
+    {
+        const QString daemon = QStandardPaths::findExecutable("dbus-daemon");
+        if (daemon.isEmpty()) QSKIP("no dbus-daemon");
+        QTemporaryDir tmp;
+        QProcess bus;
+        bus.start(daemon, {"--session", "--nofork", "--nopidfile", "--print-address",
+                           "--address=unix:path=" + tmp.filePath("bus")});
+        QVERIFY(bus.waitForReadyRead(5000));
+        const QString address = QString::fromUtf8(bus.readLine()).trimmed();
+        {
+            QDBusConnection conn = QDBusConnection::connectToBus(address, "tst-tray-bus");
+            QVERIFY(conn.isConnected());
+            FakeWatcher watcher;
+            QVERIFY(conn.registerObject("/StatusNotifierWatcher", &watcher,
+                                        QDBusConnection::ExportAllSlots | QDBusConnection::ExportAllProperties));
+            QVERIFY(conn.registerService("org.kde.StatusNotifierWatcher"));
+
+            QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+            env.insert("XDG_RUNTIME_DIR", tmp.path());
+            env.insert("QT_QPA_PLATFORM", "offscreen");
+            // The theme makes the D-Bus tray; offscreen has none (generic is wayland/xcb only).
+            env.insert("QT_QPA_PLATFORMTHEME", "gtk3");
+            env.insert("REVERSEUNO_CONTROL_FILE", tmp.filePath("control.json")); // no engine
+            env.insert("DBUS_SESSION_BUS_ADDRESS", address);
+            env.remove("WAYLAND_DISPLAY");
+            QProcess ui;
+            ui.setProcessEnvironment(env);
+            ui.setProcessChannelMode(QProcess::ForwardedErrorChannel);
+            ui.start(UI_BIN);
+            QVERIFY(ui.waitForStarted());
+
+            QTRY_VERIFY_WITH_TIMEOUT(!watcher.item.isEmpty(), 10000);
+            const QString service = watcher.item.section('/', 0, 0);
+            QVERIFY2(service.startsWith(":1."), qPrintable(watcher.item));
+
+            QDBusInterface item(service, "/StatusNotifierItem", "org.kde.StatusNotifierItem", conn);
+            QCOMPARE(item.property("Status").toString(), QString("Active"));
+            QCOMPARE(item.property("Category").toString(), QString("ApplicationStatus"));
+            QCOMPARE(item.property("ItemIsMenu").toBool(), false); // so a left click sends Activate
+            QCOMPARE(item.property("Menu").value<QDBusObjectPath>().path(), QString("/MenuBar"));
+
+            QDBusInterface menu(service, "/MenuBar", "com.canonical.dbusmenu", conn);
+            // Qt leaves GetProperty unimplemented; GetGroupProperties is what hosts use.
+            const QDBusMessage reply = menu.call("GetGroupProperties", QVariant::fromValue(QList<int>{1, 2, 3, 4, 5}),
+                                                 QStringList{"label"});
+            QCOMPARE(reply.type(), QDBusMessage::ReplyMessage);
+            const QDBusArgument items = reply.arguments().at(0).value<QDBusArgument>();
+            QStringList labels;
+            items.beginArray();
+            while (!items.atEnd()) {
+                int id;
+                QVariantMap props;
+                items.beginStructure();
+                items >> id >> props;
+                items.endStructure();
+                if (props.contains("label")) labels << props.value("label").toString(); // not the separator
+            }
+            items.endArray();
+            QCOMPARE(labels, QStringList({"reverseuno is not running", "Start dictation",
+                                          "Open reverseuno", "Quit"}));
+            ui.kill();
+            ui.waitForFinished(5000);
+        }
+        QDBusConnection::disconnectFromBus("tst-tray-bus");
+        bus.kill();
+        bus.waitForFinished(5000);
     }
 };
 
