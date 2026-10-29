@@ -8,5 +8,6 @@ qrc_*
 /reverseuno-ui
 /tests/tst_*/tst_theme
 /tests/tst_*/tst_engineclient
+/tests/tst_*/tst_overlay
 target_wrapper.sh
 *.moc
