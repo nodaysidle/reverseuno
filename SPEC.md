@@ -324,7 +324,7 @@ Hub (window title and app id `reverseuno`, 980×660, minimum 760×480):
   provider, model, cleanup level, writing style, app context, OpenRouter base URL,
   custom instructions), Insertion (mode, default keys, restore delay, trailing space,
   primary selection, per-app rules), API keys (save, test, clear; never shown again),
-  Overlay (Resting pill, position, sound cues), History (learn from edits, export,
+  Overlay (Resting pill, position), History (learn from edits, export,
   clear), System (start at login).
 - No stats, streaks or charts.
 - Engine down: an offline banner while it retries.
@@ -339,7 +339,8 @@ interactivity none):
 - Shown, placed and hidden by the engine (`overlay` events; §9); done hides after
   `overlay.hideAfterMs`, errors after `overlay.errorHideAfterMs`.
 - Resting pill (`overlay.showAtRest`): “Hold Right Super to talk”.
-- Start/stop sound cues (`overlay.sounds`) are not played by the Qt Overlay yet.
+- No start/stop sound cues: the Qt windows play none and offer no control; a stored
+  `overlay.sounds` value is kept by the engine but ignored.
 
 Tray (`Qt.labs.platform` status notifier): state, start/stop (toggles; the session
 pastes), open the Hub, quit (quits the engine too).
@@ -354,7 +355,7 @@ text, never as markup.
 ## 11. Acceptance checks
 
 - `npx tsc --noEmit` passes.
-- `npm test` passes (114 tests); `cd qt && make check` passes (5 suites, 32 tests,
+- `npm test` passes (116 tests); `cd qt && make check` passes (5 suites, 33 tests,
   offscreen).
 - `npm run test:e2e` proves known audio → formatted text → target textarea +
   clipboard restore + history/timings.

@@ -10,7 +10,7 @@
     <img src="https://img.shields.io/badge/Electron-44-47848F?style=flat-square&logo=electron&logoColor=white" alt="Electron 44">
     <img src="https://img.shields.io/badge/Qt%20Quick-6-41CD52?style=flat-square&logo=qt&logoColor=white" alt="Qt Quick 6">
     <img src="https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript strict">
-    <img src="https://img.shields.io/badge/tests-114%20engine%20%2B%2032%20Qt-4c8c6b?style=flat-square" alt="114 engine and 32 Qt tests passing">
+    <img src="https://img.shields.io/badge/tests-116%20engine%20%2B%2033%20Qt-4c8c6b?style=flat-square" alt="116 engine and 33 Qt tests passing">
     <img src="https://img.shields.io/badge/telemetry-none-4c8c6b?style=flat-square" alt="No telemetry">
     <img src="https://img.shields.io/badge/version-0.1.0-8e8e96?style=flat-square" alt="Version 0.1.0">
   </p>
@@ -200,9 +200,9 @@ Qt app first if it is not running. Each call is logged to
 ## Testing
 
 ```bash
-npm test                              # 114 engine tests (vitest)
+npm test                              # 116 engine tests (vitest)
 npm run typecheck
-(cd qt && make check)                 # 5 Qt suites, 32 tests, offscreen
+(cd qt && make check)                 # 5 Qt suites, 33 tests, offscreen
 npm run test:e2e                      # fake mic → STT → format → target window, with a focus steal
 E2E_STT=openrouter npm run test:e2e   # the same run through OpenRouter transcription
 ```
@@ -258,7 +258,8 @@ minute). It looks for `REVERSEUNO_UI`, then `<app>/qt/reverseuno-ui`, then
 
 - **Hyprland only.** No X11, GNOME or KDE shortcut path; the Overlay needs a
   layer-shell compositor.
-- No start/stop sound cues yet in the Qt Overlay (the `overlay.sounds` setting is kept).
+- No start/stop sound cues: the Qt windows play none and have no control for them; a
+  stored `overlay.sounds` value is ignored.
 - **Cloud only** by design: no offline Whisper.
 - No paste verification (Linux would need AT-SPI). A failed paste is recorded in
   history but not retried.

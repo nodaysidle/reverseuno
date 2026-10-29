@@ -352,11 +352,6 @@ Item {
                     options: [{ value: "bottom", label: "Bottom" }, { value: "top", label: "Top" }]
                 }
             }
-            SettingRow {
-                label: "Sound cues"
-                hint: "A soft cue when recording starts and stops."
-                Toggle { path: "overlay.sounds"; saved: !!page.ovl.sounds }
-            }
 
             Heading { text: "History" }
             SettingRow {

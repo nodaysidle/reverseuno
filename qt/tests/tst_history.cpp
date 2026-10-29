@@ -310,7 +310,7 @@ private slots:
                                                QVariantMap{{"pattern", "ghostty|kitty|velocitty"}, {"keys", "shift-insert"}},
                                                QVariantMap{{"pattern", "libreoffice|<b>x</b>"}, {"keys", "ctrl-v"},
                                                            {"restoreDelayMs", 3000}}}}}},
-                    {"overlay", QVariantMap{{"showAtRest", true}, {"position", "bottom"}, {"sounds", false}}}}},
+                    {"overlay", QVariantMap{{"showAtRest", true}, {"position", "bottom"}}}}},
                 {"dictionary", QVariantList{QVariantMap{{"id", "d1"}, {"word", "nodaysidle"}, {"starred", true}},
                                             QVariantMap{{"id", "d2"}, {"word", "hyper land"}, {"correction", "Hyprland"}}}},
                 {"snippets", QVariantList{QVariantMap{{"id", "s1"}, {"trigger", "my calendar link"},
