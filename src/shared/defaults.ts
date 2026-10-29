@@ -71,7 +71,7 @@ export const DEFAULT_SETTINGS: Settings = {
   stt: {
     provider: 'openrouter',
     model: 'nova-3',
-    openrouterModel: 'openai/whisper-large-v3',
+    openrouterModel: 'openai/gpt-4o-mini-transcribe',
     language: 'multi',
     smartFormat: true,
     punctuate: true,
