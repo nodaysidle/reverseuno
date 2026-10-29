@@ -28,7 +28,7 @@ data class SttSettings(
     val model: String = "openai/gpt-4o-mini-transcribe",
     /** "auto" leaves the language out so the model detects it per dictation. */
     val language: String = "auto",
-    val keytermLimit: Int = 50,
+    val keytermLimit: Int = 15,
     /** Stream PCM to the selected provider while recording; one-shot OpenRouter remains the fallback. */
     val streaming: Boolean = true,
     /** Streaming provider id: "deepgram" or "xai". */
@@ -134,9 +134,22 @@ data class Suggestion(
     val source: String = "edit",
 )
 
+/** v2 sends 15 keyterms instead of 50; see [migrate]. */
+const val STORE_VERSION = 2
+
+/**
+ * Moves an older store off defaults that changed. Past ~15 keyterms, sound-alike developer
+ * terms (Node.js, Neovim) win over the user's own words in Deepgram's final transcript.
+ */
+fun migrate(data: StoreData): StoreData {
+    if (data.version >= STORE_VERSION) return data
+    val stt = if (data.settings.stt.keytermLimit == 50) data.settings.stt.copy(keytermLimit = SttSettings().keytermLimit) else data.settings.stt
+    return data.copy(version = STORE_VERSION, settings = data.settings.copy(stt = stt))
+}
+
 @Serializable
 data class StoreData(
-    val version: Int = 1,
+    val version: Int = STORE_VERSION,
     val createdAt: Long = System.currentTimeMillis(),
     val settings: Settings = Settings(),
     val history: List<DictationEntry> = emptyList(),

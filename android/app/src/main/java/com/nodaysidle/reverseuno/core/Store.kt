@@ -24,7 +24,7 @@ object Store {
     fun init(context: Context) {
         if (::file.isInitialized) return
         file = File(context.filesDir, "store.json")
-        state.value = runCatching { json.decodeFromString<StoreData>(file.readText()) }
+        state.value = runCatching { migrate(json.decodeFromString<StoreData>(file.readText())) }
             .onFailure { if (file.exists()) Log.w(TAG, "Store unreadable; starting fresh", it) }
             .getOrDefault(StoreData())
     }

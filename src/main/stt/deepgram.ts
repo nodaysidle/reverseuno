@@ -52,7 +52,7 @@ function buildUrl(options: DeepgramOptions, streaming: boolean): string {
   }
 
   if (options.model === 'nova-3') {
-    const limit = options.keytermLimit ?? 50
+    const limit = options.keytermLimit ?? 15
     for (const term of (options.keyterms ?? []).slice(0, limit)) {
       const clean = term.trim()
       if (clean) params.append('keyterm', clean)

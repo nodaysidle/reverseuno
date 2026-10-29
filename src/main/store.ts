@@ -14,15 +14,21 @@ import type {
   Suggestion
 } from '@shared/types'
 
-const STORE_VERSION = 2
+const STORE_VERSION = 3
 // v2 lowered the formatter timeout from 4500 to 2500 ms; installs still on the old
 // default would otherwise keep waiting up to 4.5 s before falling back to raw text.
 const OLD_FORMAT_TIMEOUT_MS = 4500
+// v3 sends 15 keyterms instead of 50: past ~15, sound-alike developer terms (Node.js,
+// Neovim) start winning over the user's own words in Deepgram's final transcript.
+const OLD_KEYTERM_LIMIT = 50
 
 function migrateSettings(settings: Settings, fromVersion: unknown): Settings {
-  if (typeof fromVersion === 'number' && fromVersion >= 2) return settings
-  if (settings.format.timeoutMs === OLD_FORMAT_TIMEOUT_MS) {
+  const version = typeof fromVersion === 'number' ? fromVersion : 1
+  if (version < 2 && settings.format.timeoutMs === OLD_FORMAT_TIMEOUT_MS) {
     settings.format.timeoutMs = DEFAULT_SETTINGS.format.timeoutMs
+  }
+  if (version < 3 && settings.stt.keytermLimit === OLD_KEYTERM_LIMIT) {
+    settings.stt.keytermLimit = DEFAULT_SETTINGS.stt.keytermLimit
   }
   return settings
 }
