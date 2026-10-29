@@ -10,6 +10,8 @@ Item {
     readonly property var stt: hub.settings.stt || ({})
     readonly property var fmt: hub.settings.format || ({})
     readonly property var audio: hub.settings.audio || ({})
+    readonly property var ins: hub.settings.insert || ({})
+    readonly property var pasteKeys: [{ value: "ctrl-v", label: "Ctrl+V" }, { value: "shift-insert", label: "Shift+Insert" }]
     readonly property var ovl: hub.settings.overlay || ({})
     readonly property var hist: hub.settings.history || ({})
     readonly property var sys: hub.settings.system || ({})
@@ -147,6 +149,141 @@ Item {
                             { value: "very-casual", label: "Very casual" }, { value: "excited", label: "Excited" },
                             { value: "genz", label: "Gen Z" }]
                 }
+            }
+
+            SettingRow {
+                label: "Use the active app as context"
+                hint: "Only the app class and window title are sent, never screen text."
+                Toggle { path: "format.includeAppContext"; saved: !!page.fmt.includeAppContext }
+            }
+            SettingRow {
+                label: "OpenRouter base URL"
+                hint: "Blank uses OpenRouter itself."
+                TextField {
+                    id: baseUrl
+                    implicitWidth: 300
+                    placeholderText: "https://openrouter.ai/api/v1"
+                    text: page.fmt.baseUrl || ""
+                    onEditingFinished: {
+                        if (text.trim() !== (page.fmt.baseUrl || "")) hub.setBaseUrl(text)
+                        text = Qt.binding(function () { return page.fmt.baseUrl || "" })
+                    }
+                }
+            }
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 6
+                Label { text: "Custom instructions"; textFormat: Text.PlainText }
+                Label {
+                    text: "Optional. Tell the Formatter how you write; it will not override its hard rules."
+                    color: theme.muted
+                    font.pixelSize: 12
+                    textFormat: Text.PlainText
+                }
+                TextArea {
+                    id: instructions
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 84
+                    wrapMode: TextEdit.Wrap
+                    textFormat: TextEdit.PlainText
+                    placeholderText: "e.g. Prefer short sentences. Never add exclamation marks."
+                    background: Rectangle {
+                        radius: 4
+                        color: instructions.palette.base
+                        border.color: instructions.activeFocus ? theme.accent : win.hairline
+                    }
+                    Component.onCompleted: text = page.fmt.customInstructions || ""
+                    Connections {
+                        target: hub
+                        function onDataChanged() {
+                            if (!instructions.activeFocus) instructions.text = page.fmt.customInstructions || ""
+                        }
+                    }
+                }
+                Button {
+                    text: "Save instructions"
+                    enabled: hub.connected && instructions.text.trim() !== (page.fmt.customInstructions || "")
+                    onClicked: hub.set("format.customInstructions", instructions.text.trim())
+                }
+            }
+
+            Heading { text: "Insertion" }
+            SettingRow {
+                label: "Mode"
+                hint: "Paste is faster and keeps undo. Type is a fallback for stubborn fields."
+                Choice {
+                    path: "insert.mode"
+                    saved: page.ins.mode
+                    options: [{ value: "paste", label: "Paste" }, { value: "type", label: "Type" }]
+                }
+            }
+            SettingRow {
+                label: "Default paste keys"
+                hint: "Terminals and IDEs usually need Shift+Insert."
+                Choice { path: "insert.defaultKeys"; saved: page.ins.defaultKeys; options: page.pasteKeys }
+            }
+            SettingRow {
+                label: "Clipboard restore delay"
+                hint: "Longer for remote desktops and Office apps."
+                NumberField { path: "insert.restoreDelayMs"; saved: page.ins.restoreDelayMs; min: 100; max: 10000 }
+            }
+            SettingRow {
+                label: "Append a trailing space"
+                hint: "So the next sentence does not run into the pasted text."
+                Toggle { path: "insert.appendSpace"; saved: !!page.ins.appendSpace }
+            }
+            SettingRow {
+                label: "Copy to primary selection"
+                hint: "Middle-click paste also gets the text."
+                Toggle { path: "insert.copyToPrimary"; saved: !!page.ins.copyToPrimary }
+            }
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 6
+                Label { text: "Per-app rules"; textFormat: Text.PlainText }
+                Label {
+                    Layout.fillWidth: true
+                    text: "A regular expression matched against the window's app class and title, in order; the first match wins."
+                    color: theme.muted
+                    font.pixelSize: 12
+                    wrapMode: Text.Wrap
+                    textFormat: Text.PlainText
+                }
+                Repeater {
+                    model: page.ins.appRules || []
+                    delegate: RowLayout {
+                        id: rule
+                        required property var modelData
+                        required property int index
+                        Layout.fillWidth: true
+                        spacing: 6
+                        TextField {
+                            objectName: "rulePattern"
+                            Layout.fillWidth: true
+                            text: rule.modelData.pattern || ""
+                            onEditingFinished: {
+                                if (text !== rule.modelData.pattern) hub.setAppRule(rule.index, "pattern", text)
+                                text = Qt.binding(function () { return rule.modelData.pattern || "" })
+                            }
+                        }
+                        Choice {
+                            saved: rule.modelData.keys
+                            options: page.pasteKeys
+                            onPicked: function (value) { hub.setAppRule(rule.index, "keys", value) }
+                        }
+                        NumberField {
+                            saved: rule.modelData.restoreDelayMs === undefined ? 500 : rule.modelData.restoreDelayMs
+                            onCommitted: function (text) { hub.setAppRule(rule.index, "restoreDelayMs", text) }
+                        }
+                        Button {
+                            text: "Remove"
+                            flat: true
+                            palette.windowText: theme.red
+                            onClicked: hub.removeAppRule(rule.index)
+                        }
+                    }
+                }
+                Button { text: "Add app rule"; flat: true; enabled: hub.connected; onClicked: hub.addAppRule() }
             }
 
             Heading { text: "API keys" }

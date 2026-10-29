@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { openRouterBaseUrl } from '@shared/defaults'
 import { wordCount } from '@shared/text'
 import type { CleanupLevel, Settings, WritingStyle } from '@shared/types'
 
@@ -93,7 +94,7 @@ function cleanResponse(raw: string): string {
 }
 
 export function openRouterBase(settings: Settings): string {
-  return (settings.format.baseUrl || 'https://openrouter.ai/api/v1').replace(/\/+$/, '')
+  return openRouterBaseUrl(settings.format.baseUrl)
 }
 
 export interface FormatResult {
@@ -227,12 +228,12 @@ export function openRouterHeaders(apiKey: string): Record<string, string> {
 
 export async function validateOpenRouterKey(
   apiKey: string,
-  baseUrl = 'https://openrouter.ai/api/v1'
+  baseUrl?: string
 ): Promise<{ ok: boolean; message: string }> {
   if (!apiKey) return { ok: false, message: 'No OpenRouter key set' }
   try {
     // /models is public; /key is the endpoint that actually checks the key.
-    const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/key`, {
+    const response = await fetch(`${openRouterBaseUrl(baseUrl)}/key`, {
       headers: { Authorization: `Bearer ${apiKey}` },
       signal: AbortSignal.timeout(8000)
     })

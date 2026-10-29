@@ -8,6 +8,8 @@ RowLayout {
     property string path
     property var saved
     property var options: [] // [{ value, label }]
+    // Without a `path`, a click emits `picked` instead of writing a setting.
+    signal picked(var value)
     spacing: 2
     Repeater {
         model: choice.options
@@ -19,7 +21,11 @@ RowLayout {
             font.weight: current ? Font.DemiBold : Font.Normal
             palette.windowText: current ? theme.foreground : theme.muted
             background: Rectangle { radius: 6; color: parent.current ? win.hairline : "transparent" }
-            onClicked: if (!current) hub.set(choice.path, modelData.value)
+            onClicked: {
+                if (current) return
+                if (choice.path) hub.set(choice.path, modelData.value)
+                else choice.picked(modelData.value)
+            }
         }
     }
 }

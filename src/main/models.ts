@@ -1,4 +1,4 @@
-import { FORMAT_MODELS, OPENROUTER_STT_MODELS } from '@shared/defaults'
+import { FORMAT_MODELS, OPENROUTER_STT_MODELS, openRouterBaseUrl } from '@shared/defaults'
 import type { ModelKind, ModelOption } from '@shared/types'
 import { log } from './logger'
 
@@ -20,7 +20,7 @@ export async function listOpenRouterModels(kind: ModelKind, baseUrl: string): Pr
   const cached = cache.get(kind)
   if (cached && Date.now() - cached.at < CACHE_MS) return cached.models
 
-  const base = (baseUrl || 'https://openrouter.ai/api/v1').replace(/\/+$/, '')
+  const base = openRouterBaseUrl(baseUrl)
   const url = kind === 'stt' ? `${base}/models?output_modalities=transcription` : `${base}/models`
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(8000) })

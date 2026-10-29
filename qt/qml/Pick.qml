@@ -9,6 +9,13 @@ ComboBox {
     implicitWidth: 240
     textRole: "label"
     valueRole: "value"
+    delegate: ComboItem {
+        required property var modelData
+        required property int index
+        combo: pick
+        row: index
+        label: modelData.label
+    }
     function sync() { currentIndex = indexOfValue(saved) }
     onSavedChanged: sync()
     onCountChanged: sync()

@@ -36,6 +36,14 @@ public:
     // "format.cleanup", "light" → {format: {cleanup: "light"}}
     static QVariantMap patchFor(const QString &path, const QVariant &value);
 
+    // A whole number typed in a field: null when it is not one, else clamped to [min, max].
+    // Settings numbers must reach the engine as JSON numbers (it checks typeof).
+    static QVariant number(const QString &text, int min, int max);
+    // Edits one field of a per-app paste rule (Settings.insert.appRules) in place.
+    // False, and `rules` untouched, for a bad index, regex, key or delay.
+    static bool changeRule(QVariantList &rules, int index, const QString &field, const QVariant &value);
+    static bool validBaseUrl(const QString &url);
+
     bool connected() const { return m_connected; }
     QString page() const { return m_page; }
     void setPage(const QString &page);
@@ -60,6 +68,13 @@ public:
     Q_INVOKABLE void reload();
     // One write path for every Settings control: a small nested updateSettings patch.
     Q_INVOKABLE void set(const QString &path, const QVariant &value);
+    // False (nothing sent, a notice said why) when the value is rejected; the field reverts.
+    Q_INVOKABLE bool setNumber(const QString &path, const QString &text, int min, int max);
+    Q_INVOKABLE bool setBaseUrl(const QString &url);
+    // appRules is written as a whole array; the engine replaces it.
+    Q_INVOKABLE void addAppRule();
+    Q_INVOKABLE void removeAppRule(int index);
+    Q_INVOKABLE bool setAppRule(int index, const QString &field, const QVariant &value);
     Q_INVOKABLE void loadLists();
     Q_INVOKABLE void testProvider(const QString &name);
     // Any other RPC. A failure always becomes a notice; `okNotice` ("%1" = result) on success.
@@ -75,6 +90,7 @@ signals:
 
 private:
     using Done = std::function<void(const QVariant &result)>;
+    QVariantList appRules() const;
     void request(const QString &method, const QVariantList &args, Done done);
 
     EngineClient *m_client;

@@ -1,5 +1,7 @@
 #include "HubController.h"
 
+#include <QRegularExpression>
+#include <QUrl>
 #include <QWindow>
 
 #include "EngineClient.h"
@@ -145,4 +147,95 @@ void HubController::run(const QString &method, const QVariantList &args, const Q
         if (okNotice.isEmpty() || (okNotice.contains("%1") && result.isNull())) return;
         emit notice(okNotice.contains("%1") ? okNotice.arg(result.toString()) : okNotice, true);
     });
+}
+
+QVariant HubController::number(const QString &text, int min, int max)
+{
+    bool ok = false;
+    const double n = text.trimmed().toDouble(&ok);
+    if (!ok || !qIsFinite(n)) return QVariant();
+    return qBound(min, int(qRound(n)), max);
+}
+
+bool HubController::changeRule(QVariantList &rules, int index, const QString &field, const QVariant &value)
+{
+    if (index < 0 || index >= rules.size()) return false;
+    QVariantMap rule = rules.at(index).toMap();
+    if (field == "pattern") {
+        const QString pattern = value.toString().trimmed();
+        if (pattern.isEmpty() || !QRegularExpression(pattern).isValid()) return false;
+        rule["pattern"] = pattern;
+    } else if (field == "keys") {
+        if (value != "ctrl-v" && value != "shift-insert") return false;
+        rule["keys"] = value.toString();
+    } else if (field == "restoreDelayMs") {
+        const QVariant ms = number(value.toString(), 100, 10000);
+        if (!ms.isValid()) return false;
+        rule["restoreDelayMs"] = ms;
+    } else {
+        return false;
+    }
+    rules[index] = rule;
+    return true;
+}
+
+bool HubController::validBaseUrl(const QString &url)
+{
+    if (url.isEmpty()) return true; // blank: the engine uses OpenRouter itself
+    const QUrl u(url, QUrl::StrictMode);
+    return u.isValid() && (u.scheme() == "http" || u.scheme() == "https") && !u.host().isEmpty()
+           && !url.contains(QRegularExpression("\\s"));
+}
+
+bool HubController::setNumber(const QString &path, const QString &text, int min, int max)
+{
+    const QVariant n = number(text, min, max);
+    if (!n.isValid()) {
+        emit notice(QStringLiteral("Enter a number from %1 to %2").arg(min).arg(max), false);
+        return false;
+    }
+    set(path, n);
+    return true;
+}
+
+bool HubController::setBaseUrl(const QString &url)
+{
+    const QString next = url.trimmed();
+    if (!validBaseUrl(next)) {
+        emit notice("Base URL must start with http:// or https://", false);
+        return false;
+    }
+    set("format.baseUrl", next);
+    return true;
+}
+
+QVariantList HubController::appRules() const
+{
+    return m_settings.value("insert").toMap().value("appRules").toList();
+}
+
+void HubController::addAppRule()
+{
+    QVariantList rules = appRules();
+    rules.append(QVariantMap{{"pattern", "my-app"}, {"keys", "ctrl-v"}, {"restoreDelayMs", 500}});
+    set("insert.appRules", rules);
+}
+
+void HubController::removeAppRule(int index)
+{
+    QVariantList rules = appRules();
+    if (index < 0 || index >= rules.size()) return;
+    rules.removeAt(index);
+    set("insert.appRules", rules);
+}
+
+bool HubController::setAppRule(int index, const QString &field, const QVariant &value)
+{
+    QVariantList rules = appRules();
+    if (!changeRule(rules, index, field, value)) {
+        emit notice(field == "pattern" ? "Not a valid regular expression" : "That value is not allowed", false);
+        return false;
+    }
+    set("insert.appRules", rules);
+    return true;
 }

@@ -9,6 +9,13 @@ ComboBox {
     property string saved
     implicitWidth: 300
     editable: true
+    delegate: ComboItem {
+        required property var modelData
+        required property int index
+        combo: field
+        row: index
+        label: modelData
+    }
     function sync() {
         currentIndex = find(saved)
         editText = saved

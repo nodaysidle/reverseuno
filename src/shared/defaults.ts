@@ -16,6 +16,13 @@ export const LANGUAGE_OPTIONS = [
   { value: 'zh', label: 'Chinese' }
 ] as const
 
+export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
+
+/** A blank `format.baseUrl` means OpenRouter itself; returned without a trailing slash. */
+export function openRouterBaseUrl(baseUrl: string | undefined): string {
+  return (baseUrl || OPENROUTER_BASE_URL).replace(/\/+$/, '')
+}
+
 export const DEEPGRAM_MODELS = ['nova-3', 'nova-2', 'enhanced', 'base'] as const
 
 // Fallbacks for when OpenRouter's model list cannot be fetched. Settings loads

@@ -2,6 +2,7 @@
 #include <QGuiApplication>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QQmlApplicationEngine>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -179,6 +180,97 @@ private slots:
         }
     }
 
+    void insertionAndFormatterPatches()
+    {
+        auto json = [](const QVariantMap &m) { return QJsonDocument(QJsonObject::fromVariantMap(m)).toJson(QJsonDocument::Compact); };
+        QCOMPARE(json(HubController::patchFor("insert.mode", "paste")), QByteArray(R"({"insert":{"mode":"paste"}})"));
+        QCOMPARE(json(HubController::patchFor("insert.defaultKeys", "shift-insert")),
+                 QByteArray(R"({"insert":{"defaultKeys":"shift-insert"}})"));
+        // numbers typed in a field go out as JSON numbers, clamped
+        QCOMPARE(json(HubController::patchFor("insert.restoreDelayMs", HubController::number("150", 100, 10000))),
+                 QByteArray(R"({"insert":{"restoreDelayMs":150}})"));
+        QCOMPARE(HubController::number(" 42.6 ", 0, 100), QVariant(43));
+        QCOMPARE(HubController::number("5", 100, 10000), QVariant(100));
+        QCOMPARE(HubController::number("1e9", 100, 10000), QVariant(10000));
+        QVERIFY(!HubController::number("abc", 100, 10000).isValid());
+        QVERIFY(!HubController::number("", 100, 10000).isValid());
+        QCOMPARE(json(HubController::patchFor("format.baseUrl", "https://proxy.example/v1")),
+                 QByteArray("{\"format\":{\"baseUrl\":\"https:/" "/proxy.example/v1\"}}"));
+        QCOMPARE(json(HubController::patchFor("format.customInstructions", "Short sentences.")),
+                 QByteArray(R"({"format":{"customInstructions":"Short sentences."}})"));
+        QVERIFY(HubController::validBaseUrl(""));
+        QVERIFY(HubController::validBaseUrl("http://localhost:8080/v1"));
+        QVERIFY(!HubController::validBaseUrl("openrouter.ai/api/v1"));
+        QVERIFY(!HubController::validBaseUrl("ftp://x.example"));
+        QVERIFY(!HubController::validBaseUrl("https://a b"));
+
+        // appRules: edited in place, sent as the whole array
+        QVariantList rules{QVariantMap{{"pattern", "ghostty|kitty"}, {"keys", "shift-insert"}},
+                           QVariantMap{{"pattern", "libreoffice"}, {"keys", "ctrl-v"}, {"restoreDelayMs", 3000}}};
+        QVERIFY(HubController::changeRule(rules, 0, "pattern", "ghostty|kitty|velocitty"));
+        QVERIFY(HubController::changeRule(rules, 1, "restoreDelayMs", "250"));
+        QVERIFY(HubController::changeRule(rules, 1, "keys", "shift-insert"));
+        QVERIFY(!HubController::changeRule(rules, 0, "pattern", "(unclosed"));
+        QVERIFY(!HubController::changeRule(rules, 0, "keys", "alt-v"));
+        QVERIFY(!HubController::changeRule(rules, 0, "restoreDelayMs", "soon"));
+        QVERIFY(!HubController::changeRule(rules, 5, "keys", "ctrl-v"));
+        QVERIFY(!HubController::changeRule(rules, 0, "other", "x"));
+        QCOMPARE(json(HubController::patchFor("insert.appRules", rules)),
+                 QByteArray(R"({"insert":{"appRules":[{"keys":"shift-insert","pattern":"ghostty|kitty|velocitty"},)"
+                            R"({"keys":"shift-insert","pattern":"libreoffice","restoreDelayMs":250}]}})"));
+
+        // rejected input sends nothing and says why; accepted input is one updateSettings
+        EngineClient client("/nonexistent/control.json");
+        HubController hub(&client);
+        QSignalSpy calls(&client, &EngineClient::callFinished);
+        QSignalSpy notices(&hub, &HubController::notice);
+        QVERIFY(!hub.setNumber("insert.restoreDelayMs", "abc", 100, 10000));
+        QVERIFY(!hub.setBaseUrl("not a url"));
+        hub.applyBootstrap(QVariantMap{{"settings", QVariantMap{{"insert", QVariantMap{{"appRules", rules}}}}}});
+        QVERIFY(!hub.setAppRule(0, "pattern", "(unclosed"));
+        QCOMPARE(calls.count(), 0);
+        QCOMPARE(notices.count(), 3);
+        QVERIFY(hub.setNumber("insert.restoreDelayMs", "150", 100, 10000));
+        QVERIFY(hub.setBaseUrl(""));
+        QVERIFY(hub.setAppRule(0, "keys", "ctrl-v"));
+        hub.addAppRule();
+        hub.removeAppRule(0);
+        QCOMPARE(calls.count(), 5);
+        for (const QList<QVariant> &c : calls) QCOMPARE(c.at(0).toString(), QString("updateSettings"));
+    }
+
+    void comboPopupItemsArePlainText()
+    {
+        QTest::failOnWarning();
+        Theme theme("/nonexistent");
+        EngineClient client("/nonexistent/control.json");
+        HubController hub(&client);
+        QQmlEngine qml;
+        qml.rootContext()->setContextProperty("theme", &theme);
+        qml.rootContext()->setContextProperty("hub", &hub);
+        QQmlComponent c(&qml);
+        c.setData("import QtQuick\nWindow {\n width: 400; height: 400\n"
+                  " property alias pick: pick\n property alias field: field\n"
+                  " Pick { id: pick; model: [{ value: 'm', label: '<i>m</i>' }] }\n"
+                  " ModelField { id: field; y: 60; model: ['<b>model</b>'] }\n}",
+                  QUrl::fromLocalFile(QML_DIR "/probe.qml"));
+        std::unique_ptr<QObject> root(c.create());
+        QVERIFY2(root, qPrintable(c.errorString()));
+        auto *win = qobject_cast<QQuickWindow *>(root.get());
+        win->show();
+        QVERIFY(QTest::qWaitForWindowExposed(win));
+        for (const char *name : {"pick", "field"}) {
+            QObject *combo = root->property(name).value<QObject *>();
+            QObject *popup = combo->property("popup").value<QObject *>();
+            QVERIFY(QMetaObject::invokeMethod(popup, "open"));
+            QQuickItem *label = nullptr;
+            QTRY_VERIFY((label = findItem(popup->property("contentItem").value<QQuickItem *>(), "choiceLabel")));
+            QVERIFY(label->property("text").toString().startsWith('<'));
+            QCOMPARE(label->property("textFormat").toInt(), 0); // Text.PlainText
+            QMetaObject::invokeMethod(popup, "close");
+        }
+    }
+
     void markupInTextStaysLiteral()
     {
         QTest::failOnWarning();
@@ -212,6 +304,12 @@ private slots:
                     {"format", QVariantMap{{"enabled", true}, {"provider", "openrouter"}, {"model", "google/gemini-2.5-flash"},
                                            {"cleanup", "medium"}, {"style", "casual"}}},
                     {"audio", QVariantMap{{"inputDevice", ""}}},
+                    {"insert", QVariantMap{{"mode", "paste"}, {"defaultKeys", "ctrl-v"}, {"restoreDelayMs", 500},
+                                           {"appendSpace", true}, {"copyToPrimary", false},
+                                           {"appRules", QVariantList{
+                                               QVariantMap{{"pattern", "ghostty|kitty|velocitty"}, {"keys", "shift-insert"}},
+                                               QVariantMap{{"pattern", "libreoffice|<b>x</b>"}, {"keys", "ctrl-v"},
+                                                           {"restoreDelayMs", 3000}}}}}},
                     {"overlay", QVariantMap{{"showAtRest", true}, {"position", "bottom"}, {"sounds", false}}}}},
                 {"dictionary", QVariantList{QVariantMap{{"id", "d1"}, {"word", "nodaysidle"}, {"starred", true}},
                                             QVariantMap{{"id", "d2"}, {"word", "hyper land"}, {"correction", "Hyprland"}}}},
@@ -225,6 +323,7 @@ private slots:
                 if (p == QLatin1String("history")) {
                     QMetaObject::invokeMethod(findItem(wins.hub->contentItem(), "entryText")->parentItem()->parentItem(), "clicked");
                 }
+                if (p == QLatin1String("settings")) wins.hub->resize(980, 2300); // the whole page in one picture
                 QTest::qWait(200);
                 wins.hub->grabWindow().save(qEnvironmentVariable("HUB_SNAPSHOT") + "/hub-" + p + ".png");
             }

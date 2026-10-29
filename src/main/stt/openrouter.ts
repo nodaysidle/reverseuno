@@ -1,3 +1,4 @@
+import { openRouterBaseUrl } from '@shared/defaults'
 import { pcm16ToWav } from '@shared/wav'
 import { log } from '../logger'
 import type { SttResult } from './deepgram'
@@ -35,7 +36,7 @@ export async function transcribeOpenRouter(options: OpenRouterSttOptions, pcm: B
   if (!options.apiKey) throw new Error('OpenRouter API key is missing')
   if (pcm.length === 0) throw new Error('No audio to transcribe')
 
-  const base = (options.baseUrl || 'https://openrouter.ai/api/v1').replace(/\/+$/, '')
+  const base = openRouterBaseUrl(options.baseUrl)
   const body: Record<string, unknown> = {
     model: options.model,
     input_audio: { data: pcm16ToWav(pcm, options.sampleRate).toString('base64'), format: 'wav' }
