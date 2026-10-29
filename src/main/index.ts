@@ -85,8 +85,9 @@ const ui = new Supervisor({
   spawn: uiBinary
     ? (args) => {
         const child = spawn(uiBinary, args, {
-          // Point it at this engine's control file, not whatever ~/.config holds.
-          env: { ...process.env, REVERSEUNO_CONTROL_FILE: join(userData, 'control.json') },
+          // Point it at this engine's control file, not whatever ~/.config holds. Qt logs to
+          // journald when stderr is not a tty; force stderr so warnings reach our log.
+          env: { ...process.env, REVERSEUNO_CONTROL_FILE: join(userData, 'control.json'), QT_FORCE_STDERR_LOGGING: '1' },
           stdio: ['ignore', 'ignore', 'pipe']
         })
         child.stderr?.on('data', (chunk: Buffer) => log.info('[ui]', chunk.toString('utf8').trimEnd()))

@@ -55,7 +55,7 @@ function matchesShape(patch: unknown, shape: unknown): boolean {
   return Array.isArray(shape) ? Array.isArray(patch) : typeof patch === typeof shape
 }
 
-// Method names are those of ReverseunoApi; Electron IPC and the control server share these bodies.
+// Method names are those of ReverseunoApi; this is the control server's RPC table.
 export function buildApi(deps: ApiDeps): ApiTable {
   const { store, secrets, sendHub, setLogin } = deps
   const engine = deps.engine
