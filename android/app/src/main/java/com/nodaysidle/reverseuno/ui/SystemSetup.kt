@@ -29,6 +29,15 @@ object SystemSetup {
         return enabled.orEmpty().split(':').any { ComponentName.unflattenFromString(it) == ours }
     }
 
+    fun hasOverlay(context: Context): Boolean = Settings.canDrawOverlays(context)
+
+    fun openOverlay(context: Context) {
+        context.startFirst(
+            Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")),
+            appDetails(context),
+        )
+    }
+
     fun isBatteryUnrestricted(context: Context): Boolean =
         context.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(context.packageName)
 

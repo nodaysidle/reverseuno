@@ -10,7 +10,9 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
 import android.widget.FrameLayout
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -41,6 +43,7 @@ import kotlin.math.abs
  */
 class FloatingMicOverlay(
     context: Context,
+    private val windowType: Int = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
     private val onTap: () -> Unit,
     private val onHoldStart: () -> Unit,
     private val onHoldEnd: () -> Unit,
@@ -62,7 +65,7 @@ class FloatingMicOverlay(
     private var isAttached = false
     private var initialX = 0
     /** params.x is the distance from this edge, so wider states (messages) grow away from it and stay on screen. */
-    private var dockedRight = prefs.getBoolean(PREF_DOCKED_RIGHT, true)
+    private var dockedRight = prefs.getBoolean(PREF_DOCKED_RIGHT, false)
     private var initialTouchX = 0f
     private var initialTouchY = 0f
     private var isDragging = false
@@ -86,8 +89,9 @@ class FloatingMicOverlay(
         clipChildren = false
         setViewTreeLifecycleOwner(owner)
         setViewTreeSavedStateRegistryOwner(owner)
+        val view = ComposeView(context)
         addView(
-            ComposeView(context).apply {
+            view.apply {
                 setContent {
                     val restingAlpha = if (state == BubbleState.IDLE) IDLE_ALPHA else 1f
                     val alpha by animateFloatAsState(
@@ -102,7 +106,7 @@ class FloatingMicOverlay(
                             bubblePressed -> PRESSED_SCALE
                             else -> 1f
                         },
-                        tween(FADE_IN_MS),
+                        spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessMedium),
                         label = "scale",
                     )
                     DictationBubble(
@@ -123,7 +127,7 @@ class FloatingMicOverlay(
         params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            windowType,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         ).apply {
@@ -132,8 +136,9 @@ class FloatingMicOverlay(
             fitInsetsTypes = 0
             // Otherwise the window is kept out of the camera cutout band and lands that much lower than y says.
             layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-            x = prefs.getInt(PREF_EDGE_OFFSET, dp(16))
-            y = dp(260)
+            // First run: a quiet capsule near the lower third, like a system overlay.
+            x = prefs.getInt(PREF_EDGE_OFFSET, (screenWidth() - dp(56)) / 2)
+            y = prefs.getInt(PREF_EDGE_Y, (screenHeight() * 0.72f).toInt())
         }
         updateContentDescription()
     }
@@ -181,6 +186,14 @@ class FloatingMicOverlay(
         if (newState != BubbleState.RECORDING) levels.indices.forEach { levels[it] = 0f }
         updateContentDescription()
         applyVisibility()
+    }
+
+    /** Live words while recording; ignored outside RECORDING so a final state is never overwritten. */
+    fun pushInterim(text: String) {
+        if (state != BubbleState.RECORDING) return
+        if (message == text) return
+        message = text
+        updateContentDescription()
     }
 
     /** Mic level 0..1 from the recorder; feeds the scrolling waveform. */
@@ -333,7 +346,11 @@ class FloatingMicOverlay(
                 updateLayout()
             }
             doOnEnd {
-                prefs.edit().putInt(PREF_EDGE_OFFSET, params.x).putBoolean(PREF_DOCKED_RIGHT, dockedRight).apply()
+                prefs.edit()
+                    .putInt(PREF_EDGE_OFFSET, params.x)
+                    .putInt(PREF_EDGE_Y, params.y)
+                    .putBoolean(PREF_DOCKED_RIGHT, dockedRight)
+                    .apply()
             }
             start()
         }
@@ -369,6 +386,7 @@ class FloatingMicOverlay(
 
     private companion object {
         const val PREF_EDGE_OFFSET = "floating_bubble_edge_offset"
+        const val PREF_EDGE_Y = "floating_bubble_y"
         const val PREF_DOCKED_RIGHT = "floating_bubble_docked_right"
         const val KEYBOARD_GAP_DP = 12
         const val HIDE_GRACE_MS = 150L
@@ -376,9 +394,9 @@ class FloatingMicOverlay(
         const val FADE_OUT_MS = 120
         const val MOVE_MS = 180L
         const val HOLD_THRESHOLD_MS = 300L
-        const val IDLE_ALPHA = 0.8f
-        const val HIDDEN_SCALE = 0.85f
-        const val PRESSED_SCALE = 0.92f
+        const val IDLE_ALPHA = 0.9f
+        const val HIDDEN_SCALE = 0.9f
+        const val PRESSED_SCALE = 0.94f
     }
 }
 

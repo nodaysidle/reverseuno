@@ -29,6 +29,14 @@ data class SttSettings(
     /** "auto" leaves the language out so the model detects it per dictation. */
     val language: String = "auto",
     val keytermLimit: Int = 50,
+    /** Stream PCM to the selected provider while recording; one-shot OpenRouter remains the fallback. */
+    val streaming: Boolean = true,
+    /** Streaming provider id: "deepgram" or "xai". */
+    val provider: String = "deepgram",
+    /** Deepgram streaming model. Nova-3 matches the desktop build. */
+    val deepgramModel: String = "nova-3",
+    /** xAI streaming model. */
+    val xaiModel: String = "grok-voice-transcribe-2.0",
 )
 
 @Serializable

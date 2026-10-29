@@ -15,6 +15,7 @@ import com.nodaysidle.reverseuno.core.wordCount
 import com.nodaysidle.reverseuno.security.KeyVault
 import com.nodaysidle.reverseuno.security.Secret
 import com.nodaysidle.reverseuno.stt.OpenRouterSttClient
+import com.nodaysidle.reverseuno.stt.SttResult
 import java.io.File
 import java.util.UUID
 
@@ -28,26 +29,59 @@ data class Transcript(
     val language: String,
     val asrMs: Long,
     val formatMs: Long,
+    val provider: String = "openrouter",
+    val model: String = "",
 )
 
 /**
- * The desktop dictation pipeline (src/main/dictation.ts), minus streaming:
- * transcribe -> sanitize -> snippet or format -> dictionary spellings.
+ * The desktop dictation pipeline (src/main/dictation.ts):
+ * transcribe (streaming when available, one-shot otherwise) -> sanitize -> snippet or format -> dictionary spellings.
  */
 class Pipeline(private val context: Context) {
 
-    /** Null when ready; otherwise what the bubble should say. */
-    fun setupProblem(): String? =
-        if (KeyVault.get(context, Secret.OPENROUTER).isBlank()) "Set up OpenRouter" else null
+    /** Null when some transcription path is configured; otherwise what the bubble should say. */
+    fun setupProblem(): String? {
+        val stt = Store.settings.stt
+        val streamingKey = when (stt.provider) {
+            "xai" -> Secret.XAI
+            else -> Secret.DEEPGRAM
+        }
+        val streamReady = stt.streaming && KeyVault.get(context, streamingKey).isNotBlank()
+        val fallbackReady = KeyVault.get(context, Secret.OPENROUTER).isNotBlank()
+        return if (streamReady || fallbackReady) null else "Add a transcription key"
+    }
 
-    /** Null when nothing was said. Throws when transcription fails. */
-    suspend fun process(audio: File, target: Target): Transcript? {
+    /**
+     * [streamed] is the result of the live stream when it produced text; it skips the one-shot call.
+     * Null when nothing was said. Throws when transcription fails.
+     */
+    suspend fun process(
+        audio: File,
+        target: Target,
+        streamed: SttResult? = null,
+        streamedMs: Long = 0L,
+        streamedProvider: String = "deepgram",
+        streamedModel: String = "",
+    ): Transcript? {
         val settings = Store.settings
         val data = Store.data.value
-        val asrStarted = System.currentTimeMillis()
-        val stt = OpenRouterSttClient(KeyVault.get(context, Secret.OPENROUTER), settings.stt.model)
-            .transcribe(audio, settings.stt.language, preferredSpellings(data.dictionary, settings.stt.keytermLimit))
-        val asrMs = System.currentTimeMillis() - asrStarted
+        val stt: SttResult
+        val asrMs: Long
+        val provider: String
+        val model: String
+        if (streamed != null) {
+            stt = streamed
+            asrMs = streamedMs
+            provider = streamedProvider
+            model = streamedModel.ifBlank { settings.stt.model }
+        } else {
+            val asrStarted = System.currentTimeMillis()
+            stt = OpenRouterSttClient(KeyVault.get(context, Secret.OPENROUTER), settings.stt.model)
+                .transcribe(audio, settings.stt.language, preferredSpellings(data.dictionary, settings.stt.keytermLimit))
+            asrMs = System.currentTimeMillis() - asrStarted
+            provider = "openrouter"
+            model = settings.stt.model
+        }
         val raw = sanitizeTranscript(stt.text).ifEmpty { return null }
 
         var final = raw
@@ -81,8 +115,8 @@ class Pipeline(private val context: Context) {
         final = sanitizeTranscript(applyDictionary(final, data.dictionary)).ifEmpty { raw }
         if (snippet != null) cleanedBy = "snippet"
         // Timings and sizes only: transcripts never go to logcat.
-        Log.i(TAG, "dictation model=${settings.stt.model} lang=${stt.language} asrMs=$asrMs cleanup=$cleanedBy formatMs=$formatMs words=${wordCount(final)} audioKb=${audio.length() / 1024}")
-        return Transcript(final, raw, stt.language, asrMs, formatMs)
+        Log.i(TAG, "dictation provider=$provider model=$model lang=${stt.language} asrMs=$asrMs cleanup=$cleanedBy formatMs=$formatMs words=${wordCount(final)} audioKb=${audio.length() / 1024}")
+        return Transcript(final, raw, stt.language, asrMs, formatMs, provider, model)
     }
 
     /** Text as it should be typed: with the trailing space desktop adds between dictations. */
@@ -96,8 +130,8 @@ class Pipeline(private val context: Context) {
             text = transcript.text,
             rawText = transcript.raw,
             createdAt = System.currentTimeMillis(),
-            provider = "openrouter",
-            model = settings.stt.model,
+            provider = transcript.provider,
+            model = transcript.model.ifBlank { settings.stt.model },
             language = transcript.language,
             durationMs = durationMs,
             asrMs = transcript.asrMs,
