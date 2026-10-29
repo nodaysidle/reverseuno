@@ -24,7 +24,7 @@ Item {
             Button {
                 text: "Add developer word pack"
                 flat: true
-                onClicked: hub.run("dictionaryAddPack", [], "Added %1 new words")
+                onClicked: hub.run("dictionaryAddPack", [], "Developer words added: %1")
             }
         }
 

@@ -10,6 +10,7 @@ Item {
     property string selectedId: ""
     property var current: ({})
     property bool editing: false
+    property bool saving: false
 
     function select(id) {
         selectedId = id
@@ -29,6 +30,15 @@ Item {
         implicitWidth: implicitContentWidth + leftPadding + rightPadding
     }
 
+    // The editor closes only once the engine confirms; a failure keeps the text for another try.
+    Connections {
+        target: hub
+        function onNotice(text, ok) {
+            if (!page.saving) return
+            page.saving = false
+            if (ok) page.editing = false
+        }
+    }
     Connections {
         target: hub.history
         function onModelReset() {
@@ -265,9 +275,12 @@ Item {
                     highlighted: true
                     enabled: hub.connected && editor.text.trim() !== ""
                     onClicked: {
-                        if (editor.text !== page.current.text)
-                            hub.run("historyUpdate", [page.selectedId, editor.text], "Final text updated")
-                        page.editing = false
+                        if (editor.text === page.current.text) {
+                            page.editing = false
+                            return
+                        }
+                        page.saving = true
+                        hub.run("historyUpdate", [page.selectedId, editor.text], "Final text updated")
                     }
                 }
                 Act { text: "Cancel"; flat: true; onClicked: page.editing = false }

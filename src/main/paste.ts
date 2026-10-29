@@ -429,8 +429,3 @@ export async function copyToClipboard(text: string): Promise<boolean> {
 export async function notify(title: string, body: string): Promise<void> {
   await runCommand('notify-send', ['-a', 'reverseuno', '-t', '3000', title, body], { timeoutMs: 1500 })
 }
-
-export async function hasCommand(command: string): Promise<boolean> {
-  const result = await runCommand('sh', ['-lc', `command -v ${JSON.stringify(command)}`], { timeoutMs: 1000 })
-  return result.code === 0 && result.stdout.toString('utf8').trim().length > 0
-}

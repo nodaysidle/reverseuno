@@ -42,10 +42,20 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
 
 // A paste rule as the paste path reads it; a malformed one would break autopaste for every app.
+const isRegex = (pattern: string): boolean => {
+  try {
+    new RegExp(pattern, 'i') // paste.ts compiles it this way; an invalid one is silently skipped there
+    return true
+  } catch {
+    return false
+  }
+}
+
 const isAppRule = (v: unknown): boolean =>
   isRecord(v) &&
   Object.keys(v).every((key) => key === 'pattern' || key === 'keys' || key === 'restoreDelayMs') &&
   typeof v.pattern === 'string' &&
+  isRegex(v.pattern) &&
   typeof v.keys === 'string' &&
   (v.restoreDelayMs === undefined || typeof v.restoreDelayMs === 'number')
 
@@ -113,7 +123,7 @@ export function buildApi(deps: ApiDeps): ApiTable {
     historyUpdate: (id, text) => {
       const result = store.recordEdit(id as string, text as string)
       sendHub('refresh')
-      return result
+      return result ?? { ok: false, error: 'Nothing left to save after cleaning the text' }
     },
     historyDelete: (id) => {
       store.deleteHistory(id as string)

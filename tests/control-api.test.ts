@@ -164,7 +164,7 @@ describe('settings validation', () => {
 
   it('an app rule without keys (or with a wrong field) is rejected and leaves settings unchanged', () => {
     const before = structuredClone(settings)
-    for (const rule of [{ pattern: 'x' }, { pattern: 'x', keys: 1 }, { pattern: 'x', keys: 'ctrl-v', restoreDelayMs: '500' }, { pattern: 'x', keys: 'ctrl-v', bogus: 1 }, 'x', null]) {
+    for (const rule of [{ pattern: 'x' }, { pattern: 'x', keys: 1 }, { pattern: 'x', keys: 'ctrl-v', restoreDelayMs: '500' }, { pattern: 'x', keys: 'ctrl-v', bogus: 1 }, { pattern: '(?i)x', keys: 'ctrl-v' }, 'x', null]) {
       expect(() => api.updateSettings!({ insert: { appRules: [{ pattern: 'ok', keys: 'ctrl-v' }, rule] } })).toThrow('invalid settings')
     }
     expect(settings).toEqual(before)
