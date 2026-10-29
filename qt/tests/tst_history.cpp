@@ -298,7 +298,7 @@ private slots:
             hub.applyBootstrap(QVariantMap{{"history", QVariantList{
                 entry("a", "Ship the Qt hub today and keep the Overlay small.", "kitty", 1761700000000, "~/dev"),
                 entry("b", "Can we move the review to Thursday afternoon?", "Slack", 1761710000000),
-                entry("c", "<b>x</b> & literal markup", "firefox", 1761720000000, "GitHub")}},
+                entry("c", "<b>x</b> & literal markup", "firefox", 1761690000000, "GitHub")}},
                 {"settings", QVariantMap{
                     {"stt", QVariantMap{{"provider", "deepgram"}, {"model", "nova-3"}, {"language", "en"}}},
                     {"format", QVariantMap{{"enabled", true}, {"provider", "openrouter"}, {"model", "google/gemini-2.5-flash"},
@@ -317,7 +317,8 @@ private slots:
                                                       {"content", "https://cal.example/me"}}}},
                 {"suggestions", QVariantList{QVariantMap{{"id", "g1"}, {"from", "omar key"}, {"to", "Omarchy"}}}},
                 {"secrets", QVariantList{QVariantMap{{"name", "deepgram"}, {"present", true}}}},
-                {"version", "0.9.0"}});
+                {"version", "0.1.0"}});
+            emit client.connectedChanged(true); // no offline banner in the README pictures
             for (const QString &p : {"history", "dictionary", "snippets", "settings"}) {
                 hub.setPage(p);
                 if (p == QLatin1String("history")) {

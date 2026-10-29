@@ -1,6 +1,7 @@
 #include <QCommandLineParser>
 #include <QCryptographicHash>
 #include <QDir>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QLockFile>
 #include <QStandardPaths>
@@ -67,10 +68,12 @@ int main(int argc, char *argv[])
     qml.rootContext()->setContextProperty("overlay", &overlay);
     qml.rootContext()->setContextProperty("hub", &hub);
     qml.rootContext()->setContextProperty("tray", &tray);
+    // qml/ sits next to the real binary; /usr/bin/reverseuno-ui is a symlink to it.
+    const QString qmlDir = QFileInfo(QCoreApplication::applicationFilePath()).canonicalPath() + "/qml";
     // Off Wayland (offscreen, X11) a plain frameless window stands in for the layer surface.
-    const Windows windows = loadWindows(qml, QCoreApplication::applicationDirPath() + "/qml", overlay, hub,
+    const Windows windows = loadWindows(qml, qmlDir, overlay, hub,
                                         QGuiApplication::platformName().startsWith("wayland"));
     if (!windows.overlay || !windows.hub) return 1;
-    loadTray(qml, QCoreApplication::applicationDirPath() + "/qml/Tray.qml");
+    loadTray(qml, qmlDir + "/Tray.qml");
     return app.exec();
 }

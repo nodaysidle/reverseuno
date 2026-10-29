@@ -155,6 +155,11 @@ private slots:
         QVERIFY(c.contentSize().width() > 0);
         QCOMPARE(c.contentSize().height(), 32);
         QCOMPARE(w->size(), c.contentSize());
+        if (qEnvironmentVariableIsSet("OVERLAY_SNAPSHOT")) { // README picture of the listening pill
+            for (double level : {0.2, 0.7, 0.4, 0.9, 0.5, 0.3}) emit client.event({{"type", "level"}, {"level", level}});
+            QTest::qWait(200);
+            w->grabWindow().save(qEnvironmentVariable("OVERLAY_SNAPSHOT") + "/overlay-listening.png");
+        }
     }
 };
 
