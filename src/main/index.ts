@@ -78,7 +78,7 @@ let capture: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
 let engine: DictationEngine
-let control: ControlServer
+let control: ControlServer | undefined
 let api: ApiTable
 let captureLoaded = false
 let pendingPage = ''
@@ -131,6 +131,10 @@ function sendHub(channel: string, payload?: unknown): void {
       updateTrayMenu()
     }
   }
+  // The overlay gets the same state via sendOverlay; publish once, from the hub's full state.
+  if (channel === 'state') control?.publish({ type: 'state', state: payload as StateEvent })
+  else if (channel === 'refresh') control?.publish({ type: 'refresh' })
+  else if (channel === 'page') control?.publish({ type: 'page', page: payload as string })
   if (hub && !hub.isDestroyed()) hub.webContents.send(`hub:${channel}`, payload)
 }
 
@@ -139,6 +143,7 @@ function sendOverlay(event: StateEvent): void {
 }
 
 function sendLevel(level: number): void {
+  control?.publish({ type: 'level', level })
   if (overlay && !overlay.isDestroyed()) overlay.webContents.send('overlay:level', level)
 }
 
@@ -165,9 +170,16 @@ function overlayBounds(): Electron.Rectangle {
   return { x, y, width, height }
 }
 
+let lastOverlayBounds: Electron.Rectangle = { x: 0, y: 0, width: 0, height: 0 }
+
+function publishOverlay(visible: boolean): void {
+  control?.publish({ type: 'overlay', visible, ...lastOverlayBounds })
+}
+
 function showOverlay(): void {
   if (!overlay) return
   const bounds = overlayBounds()
+  lastOverlayBounds = bounds
   overlay.setBounds(bounds)
   overlay.showInactive()
   overlay.setAlwaysOnTop(true, 'screen-saver')
@@ -175,12 +187,14 @@ function showOverlay(): void {
   if (process.env.HYPRLAND_INSTANCE_SIGNATURE) {
     void placeOwnWindow('reverseuno-overlay', bounds.x, bounds.y).catch(() => undefined)
   }
+  publishOverlay(true)
 }
 
 function hideOverlay(): void {
   if (!overlay) return
   overlay.hide()
   overlay.setIgnoreMouseEvents(true, { forward: true })
+  publishOverlay(false)
 }
 
 function setOverlayMouse(enabled: boolean): void {
@@ -275,6 +289,7 @@ function createWindows(): void {
 
 function showHub(page = 'home'): void {
   pendingPage = page
+  control?.publish({ type: 'page', page })
   if (!hub) return
   if (hub.isMinimized()) hub.restore()
   hub.show()
