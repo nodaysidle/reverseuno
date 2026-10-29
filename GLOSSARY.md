@@ -47,7 +47,7 @@ The idle form of the overlay, shown when no session is running. Optional.
 _Avoid_: Idle bar
 
 **Hub**:
-The main window, opened from the tray, with Home, Dictionary and Style pages and settings.
+The main window, opened from the tray, for history, dictionary, snippets and settings.
 _Avoid_: Dashboard, main window
 
 ### Dictionary
