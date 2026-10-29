@@ -14,6 +14,9 @@ ApplicationWindow {
     title: "reverseuno"
     color: theme.background
 
+    // Reaches here only if nothing focused (a text field, an open combo popup) took the key.
+    contentItem.Keys.onEscapePressed: win.hide()
+
     // Everything is drawn from the Omarchy theme; derived tones only blend its colours.
     readonly property color hairline: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.08)
     readonly property color soft: Qt.rgba(theme.foreground.r, theme.foreground.g, theme.foreground.b, 0.05)
