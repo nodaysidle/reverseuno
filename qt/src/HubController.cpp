@@ -1,6 +1,7 @@
 #include "HubController.h"
 
 #include <QRegularExpression>
+#include <utility>
 #include <QUrl>
 #include <QWindow>
 
@@ -23,7 +24,9 @@ HubController::HubController(EngineClient *client, QObject *parent)
     connect(client, &EngineClient::callFinished, this,
             [this](const QString &method, const QVariant &result, const QString &error) {
                 // A failed bootstrap (engine went away) keeps what is on screen.
-                if (method == "bootstrap" && error.isEmpty()) applyBootstrap(result);
+                if (method != "bootstrap" || !error.isEmpty()) return;
+                applyBootstrap(result);
+                if (!m_openPage.isEmpty()) show(std::exchange(m_openPage, QString()));
             });
 }
 

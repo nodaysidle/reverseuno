@@ -63,6 +63,8 @@ public:
     // Shown and raised on a `page` event (and by the tray later).
     void attachWindow(QWindow *window);
     void applyBootstrap(const QVariant &bootstrap);
+    // `--page`: the engine started us to show the Hub; do it once the first bootstrap lands.
+    void openAfterBootstrap(const QString &page) { m_openPage = page; }
 
     Q_INVOKABLE void show(const QString &page = QString());
     Q_INVOKABLE void reload();
@@ -101,6 +103,6 @@ private:
     QVariantMap m_settings;
     QVariantList m_dictionary, m_snippets, m_suggestions, m_devices;
     QVariantMap m_secrets;
-    QString m_version, m_testing;
+    QString m_version, m_testing, m_openPage;
     QStringList m_formatModels, m_sttModels;
 };
