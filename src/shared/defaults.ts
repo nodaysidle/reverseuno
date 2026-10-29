@@ -69,10 +69,10 @@ export const DEFAULT_APP_RULES: AppRule[] = [
 
 export const DEFAULT_SETTINGS: Settings = {
   stt: {
-    provider: 'deepgram',
+    provider: 'openrouter',
     model: 'nova-3',
-    openrouterModel: 'openai/gpt-4o-mini-transcribe',
-    language: 'auto',
+    openrouterModel: 'openai/whisper-large-v3',
+    language: 'multi',
     smartFormat: true,
     punctuate: true,
     keytermLimit: 50,
@@ -81,7 +81,7 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   format: {
     enabled: true,
-    provider: 'openrouter',
+    provider: 'anthropic',
     model: 'google/gemini-2.5-flash',
     anthropicModel: 'claude-haiku-5-5',
     baseUrl: 'https://openrouter.ai/api/v1',

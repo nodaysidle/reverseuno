@@ -181,8 +181,16 @@ private slots:
         const QString daemon = QStandardPaths::findExecutable("dbus-daemon");
         if (daemon.isEmpty()) QSKIP("no dbus-daemon");
         QTemporaryDir tmp;
+        // No service dirs: a stock --session bus lets the gtk3 theme activate a second
+        // xdg-desktop-portal-hyprland, which segfaults in its exit path once the bus is killed.
+        QFile conf(tmp.filePath("bus.conf"));
+        QVERIFY(conf.open(QIODevice::WriteOnly));
+        conf.write("<busconfig><type>session</type><listen>unix:tmpdir=/tmp</listen>"
+                   "<policy context=\"default\"><allow send_destination=\"*\" eavesdrop=\"true\"/>"
+                   "<allow eavesdrop=\"true\"/><allow own=\"*\"/></policy></busconfig>");
+        conf.close();
         QProcess bus;
-        bus.start(daemon, {"--session", "--nofork", "--nopidfile", "--print-address",
+        bus.start(daemon, {"--config-file=" + conf.fileName(), "--nofork", "--nopidfile", "--print-address",
                            "--address=unix:path=" + tmp.filePath("bus")});
         QVERIFY(bus.waitForReadyRead(5000));
         const QString address = QString::fromUtf8(bus.readLine()).trimmed();
