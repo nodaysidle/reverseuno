@@ -40,7 +40,7 @@ OverlayController::OverlayController(EngineClient *client, QObject *parent)
     });
 }
 
-// Mirrors statusLabel() in src/renderer/overlay/Overlay.tsx.
+// The one word the pill shows for an engine state event; done and error prefer the engine's message.
 QString OverlayController::wordFor(const QVariantMap &s)
 {
     const QString state = s.value("state").toString();
