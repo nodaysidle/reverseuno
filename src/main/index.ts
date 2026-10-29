@@ -26,7 +26,7 @@ import { Store } from './store'
 import { Secrets } from './secrets'
 import { initLogger, getLogPath, log } from './logger'
 import { ControlServer, type ApiTable } from './control'
-import { buildApi } from './api'
+import { buildApi, redactSecrets } from './api'
 import { copyToClipboard, notify, placeOwnWindow } from './paste'
 import { seedDemo } from './demo'
 import { readOmarchyTheme, watchOmarchyTheme } from './theme'
@@ -393,7 +393,7 @@ function requestDevices(): Promise<AudioDevice[]> {
 
 function createControl(): void {
   control = new ControlServer(userData, {
-    rpc: api,
+    rpc: redactSecrets(api),
     state: () => engine.getState(),
     start: (insert) => engine.start(insert),
     stop: () => engine.stop(),

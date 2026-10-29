@@ -3,13 +3,39 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { ControlServer, type ControlHandlers } from '../src/main/control'
+import { buildApi, redactSecrets } from '../src/main/api'
+import { Secrets } from '../src/main/secrets'
 
+vi.mock('electron', () => ({
+  safeStorage: { isEncryptionAvailable: () => false },
+  clipboard: {},
+  Notification: class {},
+  shell: {},
+  app: {}
+}))
 vi.mock('../src/main/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }))
 
 const noop = async (): Promise<unknown> => ({})
 const dir = mkdtempSync(join(tmpdir(), 'ru-control-'))
+const secrets = new Secrets(join(dir, 'secrets.json'), join(dir, 'none.env'))
+const noStore = {} as never
+const realApi = redactSecrets(
+  buildApi({
+    store: noStore,
+    secrets,
+    engine: () => noStore,
+    bootstrap: () => ({ secrets: secrets.allStatuses() }) as never,
+    sendHub: () => {},
+    setLogin: () => {},
+    requestDevices: async () => [],
+    quitApp: () => {},
+    openExternal: async () => {},
+    saveDialog: async () => null
+  })
+)
 const rpc = {
-  bootstrap: () => ({ secrets: [{ name: 'anthropic', set: true }] }),
+  ...realApi,
+  fake: () => ({ secrets: [{ name: 'anthropic', set: true }] }),
   echo: (...args: unknown[]) => args,
   boom: () => {
     throw new Error('nope')
@@ -78,8 +104,23 @@ describe('control api rpc', () => {
   })
 
   it('never returns secret values', async () => {
-    const text = await (await call('/rpc/bootstrap')).text()
+    const text = await (await call('/rpc/fake')).text()
     expect(JSON.parse(text).result.secrets).toEqual([{ name: 'anthropic', set: true }])
     expect(text).not.toMatch(/sk-/)
+  })
+
+  it('real Secrets statuses expose neither the value, its tail, nor a hint', async () => {
+    secrets.set('anthropic', 'sk-test-abcdef1234')
+    for (const [path, body] of [
+      ['/rpc/bootstrap', {}],
+      ['/rpc/setSecret', { args: ['anthropic', 'sk-test-abcdef1234'] }],
+      ['/rpc/clearSecret', { args: ['deepgram'] }]
+    ] as const) {
+      const text = await (await call(path, { body })).text()
+      expect(text, path).toContain('"present":true')
+      expect(text, path).not.toContain('abcdef')
+      expect(text, path).not.toContain('1234')
+      expect(text, path).not.toContain('hint')
+    }
   })
 })

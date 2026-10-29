@@ -2,7 +2,15 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { writeFileSync } from 'node:fs'
 import { DEVELOPER_VOCABULARY } from '@shared/vocabulary'
-import type { Bootstrap, DeepPartial, ModelKind, ProviderTestResult, SecretName, Settings } from '@shared/types'
+import type {
+  Bootstrap,
+  DeepPartial,
+  ModelKind,
+  ProviderTestResult,
+  SecretName,
+  SecretStatus,
+  Settings
+} from '@shared/types'
 import type { ApiTable } from './control'
 import type { DictationEngine } from './dictation'
 import type { Store } from './store'
@@ -168,5 +176,22 @@ export function buildApi(deps: ApiDeps): ApiTable {
       sendHub('refresh')
     },
     quit: () => deps.quitApp()
+  }
+}
+
+const stripHint = (list: unknown): unknown =>
+  (list as SecretStatus[]).map(({ hint: _hint, ...rest }) => rest)
+
+// Keys are write-only over HTTP: drop the masked hint from every secret status the control server returns.
+export function redactSecrets(api: ApiTable): ApiTable {
+  const wrap =
+    (name: string, fix: (result: never) => unknown) =>
+    async (...args: unknown[]) =>
+      fix((await api[name]!(...args)) as never)
+  return {
+    ...api,
+    bootstrap: wrap('bootstrap', (b: Bootstrap) => ({ ...b, secrets: stripHint(b.secrets) })),
+    setSecret: wrap('setSecret', stripHint),
+    clearSecret: wrap('clearSecret', stripHint)
   }
 }
