@@ -39,7 +39,8 @@ class FormatterTest {
     @Test fun needsFormattingRules() {
         assertFalse(needsFormatting("meet on thursday", settings { this }))
         assertTrue(needsFormatting("um send it", settings { this }))
-        assertTrue(needsFormatting("please send me the report tomorrow", settings { this }))
+        assertFalse(needsFormatting("please send me the report tomorrow", settings { this }))
+        assertTrue(needsFormatting("please send me the quarterly report before the meeting tomorrow", settings { this }))
         assertTrue(needsFormatting("hello there", settings { copy(cleanup = CleanupLevel.MEDIUM) }))
         assertTrue(needsFormatting("hello there", settings { copy(customInstructions = "use emoji") }))
         assertFalse(needsFormatting("a long sentence with many words in it", settings { copy(enabled = false) }))

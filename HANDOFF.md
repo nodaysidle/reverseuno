@@ -16,7 +16,15 @@ reverseuno: the Hub and Overlay are native Qt windows (`qt/`, binary `reverseuno
 
 ## Fixed in the 2026-10-29 follow-up session (merged with PR #5)
 - **The "Process crashed" notifications are fixed.** They came from `xdg-desktop-portal-hyprland`, and the live app never caused them. `tst_tray` started a private D-Bus bus that spawned a second portal, which segfaulted on exit. The test's bus now has no service dirs. Checked with repeated `tst_tray` runs, `make check` and a live `reverseuno-ui` restart: the portal core count stayed at 16 and no new cores appeared. See item 1 below.
-- **Speech-to-text now uses OpenRouter `openai/gpt-4o-mini-transcribe`** instead of Deepgram `nova-3`. Whisper large-v3 was tried first, then dropped the same day because it is slower (1–4.7 s vs 1.6 s per clip), less accurate on OpenAI's FLEURS numbers, and auto-detected a quiet clip as Russian. The phone already used `gpt-4o-mini-transcribe`, so both are now on the same model. **Cleanup uses Anthropic `claude-haiku-5-5`** (thinking on, effort `low`). These are the new defaults in `src/shared/defaults.ts`, with language `multi` for new installs. The user's live store is set to the same, with `stt.language: "en"`: on auto-detect, Whisper had turned a short, quiet clip into Russian Cyrillic.
+- **Speech-to-text is back on Deepgram `nova-3` streaming** (desktop and phone), the fastest path: median 0.24 s after release, against 1.7 s for any OpenRouter one-shot model. OpenRouter `openai/gpt-4o-mini-transcribe` stays the configured one-shot model and the phone's fallback.
+- **Speed work (2026-10-29):**
+  - Haiku cleanup is skipped for clean utterances of up to 8 words (was 3) at Light cleanup, on both apps.
+  - `warmFormatter()` opens the Anthropic connection on key press and on release. No gain was visible in two samples; it is harmless.
+  - The phone's streaming provider had been left on xAI with no key, so it silently fell back to OpenRouter. It is now Deepgram, and its cleanup is now Light like the desktop.
+  - `scripts/push-keys-to-phone.py` now also copies the Deepgram key.
+  - Measured: about 0.4 s for short phrases and 1.4–2.5 s with Haiku.
+  - Deepgram can drop an unfamiliar name mid-sentence (Haiku keeps it; checked 6/6). The Dictionary's keyterms are the fix.
+- Before that, the same day: OpenRouter `openai/gpt-4o-mini-transcribe` replaced Deepgram `nova-3`. Whisper large-v3 was tried first, then dropped the same day because it is slower (1–4.7 s vs 1.6 s per clip), less accurate on OpenAI's FLEURS numbers, and auto-detected a quiet clip as Russian. The phone already used `gpt-4o-mini-transcribe`, so both are now on the same model. **Cleanup uses Anthropic `claude-haiku-5-5`** (thinking on, effort `low`). These are the new defaults in `src/shared/defaults.ts`, with language `multi` for new installs. The user's live store is set to the same, with `stt.language: "en"`: on auto-detect, Whisper had turned a short, quiet clip into Russian Cyrillic.
 - `scripts/test-format.ts` loads the key that matches `format.provider`, so it no longer sends the OpenRouter key to Anthropic.
 - Verified live with the user's microphone: 4 English dictations (2 into Velocitty, 2 into omawrite) were transcribed, cleaned up and inserted with no errors or cores. Timings: Whisper 1.0–4.7 s, Haiku 0.75–1.2 s, about 2–3 s from key release to text. 116 engine tests pass, and the typecheck is clean. Real-API checks: both keys pass `testProvider`; Whisper transcribed the e2e captures; Haiku cleaned up the `test-format` samples.
 - Keys: OpenRouter comes from `~/.config/whisper-bar/config.env`, Anthropic from the app's `secrets.json` (`plain:`). The engine's own environment has neither key.
@@ -32,7 +40,7 @@ reverseuno: the Hub and Overlay are native Qt windows (`qt/`, binary `reverseuno
 - The floating bubble is a rounded square drawn with the logo's five bars, the center bar in the logo's orange-red `#F45B36`, the one accent. It replaced the round pill with a stock mic. The same mark is the in-app record button.
 - The bubble's visibility, keyboard anchoring, tap/long-press and edge snapping were already in place on a Wispr Flow model and were left unchanged.
 - Verified on the Mi 10T (stock MIUI 14, bootloader locked, verified boot green). A dictation through the bubble into Messages was inserted (OpenRouter `gpt-4o-mini-transcribe` + Anthropic cleanup), with no crashes. The 53 Android unit tests pass.
-- The phone and the desktop both use `gpt-4o-mini-transcribe`. The bubble can cover a field's left-side button (Messages "+"); dragging it to the right edge works around this.
+- The phone and the desktop both stream through Deepgram `nova-3`, with Haiku cleanup at Light. The bubble can cover a field's left-side button (Messages "+"); dragging it to the right edge works around this.
 - Cleaned up:
   - the second worktree `reverseuno-android`
   - the stale `/tmp` worktrees and test folders
