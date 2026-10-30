@@ -13,6 +13,7 @@ import android.view.WindowManager
 import androidx.core.app.NotificationCompat
 import com.nodaysidle.reverseuno.MainActivity
 import com.nodaysidle.reverseuno.R
+import com.nodaysidle.reverseuno.ui.BubbleState
 import com.nodaysidle.reverseuno.ui.SystemSetup
 
 /**
@@ -71,6 +72,7 @@ class BubbleService : Service() {
     private fun openAccessibility() {
         SystemSetup.openAccessibility(this)
     }
+
 
     private fun notification(): Notification {
         val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager

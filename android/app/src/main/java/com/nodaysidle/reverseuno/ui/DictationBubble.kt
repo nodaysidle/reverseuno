@@ -30,7 +30,9 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -44,8 +46,7 @@ enum class BubbleState { IDLE, RECORDING, PROCESSING, SUCCESS, COPIED, ERROR, SE
 const val WAVEFORM_BARS = 12
 
 /** Floating colors stay monochrome and dark in both themes, like a system overlay. */
-private val Body = Color(0xF2111112)
-private val Rim = Color(0x24FFFFFF)
+private val Body = Color(0xE8131317)
 private val Foreground = Color(0xFFF5F5F7)
 private val Alert = Color(0xFFFF6961)
 
@@ -54,6 +55,14 @@ val BrandAccent = Color(0xFFF45B36)
 
 /** A capsule, like Superwhisper's Android pill, and a dot when it is resting at the edge. */
 private val BubbleShape = RoundedCornerShape(percent = 50)
+
+private val LuminousRim = Brush.linearGradient(
+    listOf(
+        Color(0x40FFFFFF),
+        Color(0x18FFFFFF),
+        Color(0x06FFFFFF),
+    )
+)
 
 /** The logo's resting bar heights, center tallest. */
 private val MarkLevels = listOf(0.34f, 0.62f, 1f, 0.62f, 0.34f)
@@ -76,11 +85,16 @@ fun DictationBubble(
     Box(
         modifier
             .padding(10.dp)
-            .height(if (wide) 44.dp else 26.dp)
-            .defaultMinSize(minWidth = if (wide) 44.dp else 26.dp)
-            .shadow(if (wide) 8.dp else 6.dp, BubbleShape, ambientColor = Color.Black.copy(alpha = 0.25f), spotColor = Color.Black.copy(alpha = 0.35f))
+            .height(if (wide) 44.dp else 30.dp)
+            .defaultMinSize(minWidth = if (wide) 44.dp else 30.dp)
+            .shadow(
+                elevation = if (wide) 10.dp else 6.dp,
+                shape = BubbleShape,
+                ambientColor = Color.Black.copy(alpha = 0.35f),
+                spotColor = Color.Black.copy(alpha = 0.45f),
+            )
             .background(Body, BubbleShape)
-            .border(1.dp, Rim, BubbleShape),
+            .border(1.dp, LuminousRim, BubbleShape),
         contentAlignment = Alignment.Center,
     ) {
         Crossfade(targetState = wide, animationSpec = tween(160), label = "shape") { open ->
@@ -129,10 +143,21 @@ fun DictationBubble(
 @Composable
 private fun Dot(description: String) {
     Box(
-        Modifier.size(26.dp).semantics { contentDescription = description },
+        Modifier
+            .size(30.dp)
+            .semantics { contentDescription = description },
         contentAlignment = Alignment.Center,
     ) {
-        Box(Modifier.size(7.dp).background(BrandAccent, CircleShape))
+        Box(
+            Modifier
+                .size(16.dp)
+                .background(BrandAccent.copy(alpha = 0.22f), CircleShape)
+        )
+        Box(
+            Modifier
+                .size(8.dp)
+                .background(BrandAccent, CircleShape)
+        )
     }
 }
 
@@ -157,13 +182,31 @@ private fun Word(text: String, color: Color) {
 /** Superwhisper's recording tell: a small accent dot that breathes while the microphone is live. */
 @Composable
 private fun RecordingDot() {
-    val alpha by rememberInfiniteTransition(label = "recording").animateFloat(
-        initialValue = 0.45f,
+    val transition = rememberInfiniteTransition(label = "recording")
+    val alpha by transition.animateFloat(
+        initialValue = 0.4f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(650), RepeatMode.Reverse),
-        label = "dot",
+        animationSpec = infiniteRepeatable(tween(550), RepeatMode.Reverse),
+        label = "dot_alpha",
     )
-    Box(Modifier.size(6.dp).background(BrandAccent.copy(alpha = alpha), CircleShape))
+    val scale by transition.animateFloat(
+        initialValue = 0.85f,
+        targetValue = 1.15f,
+        animationSpec = infiniteRepeatable(tween(550), RepeatMode.Reverse),
+        label = "dot_scale",
+    )
+    Box(
+        Modifier
+            .size(12.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(Modifier.size(12.dp).background(BrandAccent.copy(alpha = alpha * 0.35f), CircleShape))
+        Box(Modifier.size(6.dp).background(BrandAccent, CircleShape))
+    }
 }
 
 /** While the transcript is being written, the waveform ripples left to right; it stops when the state changes. */

@@ -50,20 +50,24 @@ object BubbleRuntime {
         if (enabled) start(context) else stop(context)
     }
 
-    /** Opens or folds the pill from accessibility events; no-op until the service has attached the view. */
+    /** Opens or folds the pill from accessibility events; hides completely when no editable field is present. */
     fun applyContext(expanded: Boolean) {
         requestedExpanded = expanded
         val view = overlay ?: return
-        view.setVisible(true)
-        view.expand(expanded)
-        view.show()
+        view.setVisible(expanded)
+        view.expand(false)
+        if (expanded) {
+            view.show()
+        }
     }
 
     fun attach(view: FloatingMicOverlay) {
         overlay = view
-        view.setVisible(true)
-        view.expand(requestedExpanded)
-        view.show()
+        view.setVisible(requestedExpanded)
+        view.expand(false)
+        if (requestedExpanded) {
+            view.show()
+        }
     }
 
     fun detach() {

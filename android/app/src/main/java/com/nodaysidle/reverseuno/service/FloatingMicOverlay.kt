@@ -6,6 +6,7 @@ import android.graphics.PixelFormat
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
+import android.view.VelocityTracker
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
@@ -39,7 +40,7 @@ import kotlin.math.abs
  * Accessibility-overlay window hosting the Compose dictation bubble.
  * Collapsed while there is no text field it can fill: a small dot at the screen edge.
  * [expand] opens it into the pill when an editable field is focused.
- * Tap toggles recording, a long press records until release, a drag moves it along the keyboard.
+ * Tap toggles recording, a long press records until release, a drag slides it up or down its edge.
  */
 class FloatingMicOverlay(
     context: Context,
@@ -58,6 +59,8 @@ class FloatingMicOverlay(
         private set
     var expanded by mutableStateOf(false)
         private set
+    /** Set after a dictation: the pill rests as the dot until the user taps it again. */
+    private var latchedClosed = false
     private var message by mutableStateOf("")
     private var composeRevealed by mutableStateOf(false)
     private var bubblePressed by mutableStateOf(false)
@@ -65,14 +68,18 @@ class FloatingMicOverlay(
 
     private val params: WindowManager.LayoutParams
     private var isAttached = false
-    private var initialX = 0
+    private var initialY = 0
     /** params.x is the distance from this edge, so wider states (messages) grow away from it and stay on screen. */
     private var dockedRight = prefs.getBoolean(PREF_DOCKED_RIGHT, true)
     private var initialTouchX = 0f
     private var initialTouchY = 0f
+    private var dragStartScreenX = 0
+    private var dragStartScreenY = 0
     private var isDragging = false
     private var isHoldRecording = false
     private val touchSlop = dp(14)
+    private var velocityTracker: VelocityTracker? = null
+    private var snapAnimator: ValueAnimator? = null
 
     private var visibleRequested = false
     private var revealed = false
@@ -173,6 +180,9 @@ class FloatingMicOverlay(
         if (!isAttached) return
         removeCallbacks(concealRunnable)
         yAnimator?.cancel()
+        snapAnimator?.cancel()
+        velocityTracker?.recycle()
+        velocityTracker = null
         runCatching { windowManager.removeView(this) }
         isAttached = false
         revealed = false
@@ -187,6 +197,21 @@ class FloatingMicOverlay(
 
     /** Opens the dot into the pill when an editable field is focused; folds it back when not. */
     fun expand(value: Boolean) {
+        if (value) {
+            if (latchedClosed) return
+        } else {
+            latchedClosed = false
+        }
+        applyExpanded(value)
+    }
+
+    /** A tap on the resting dot: open the pill again, since the field is still there. */
+    fun openFromDot() {
+        latchedClosed = false
+        applyExpanded(true)
+    }
+
+    private fun applyExpanded(value: Boolean) {
         if (expanded == value) return
         expanded = value
         updateContentDescription()
@@ -197,13 +222,21 @@ class FloatingMicOverlay(
         }
     }
 
+    /** After a dictation the control goes back to the small dot, at its corner. */
+    private fun collapseToDot() {
+        latchedClosed = true
+        applyExpanded(false)
+    }
+
     fun setState(newState: BubbleState, text: String = "") {
+        val previous = state
         state = newState
         message = text
         if (newState != BubbleState.RECORDING) levels.indices.forEach { levels[it] = 0f }
         updateContentDescription()
         applyVisibility()
         applyDock(animate = true)
+        if (newState == BubbleState.IDLE && previous != BubbleState.IDLE) collapseToDot()
     }
 
     /** Live words while recording; ignored outside RECORDING so a final state is never overwritten. */
@@ -275,11 +308,12 @@ class FloatingMicOverlay(
     private fun dockY(): Int {
         val saved = prefs.getInt(PREF_EDGE_Y, (screenHeight() * DOCK_Y_FRACTION).toInt())
         val height = measuredHeight.takeIf { it > 0 } ?: dp(56)
-        return saved.coerceIn(dp(8), (screenHeight() - height - dp(8)).coerceAtLeast(dp(8)))
+        return saved.coerceIn(minY(), maxY())
     }
 
     private fun moveToY(y: Int, animate: Boolean) {
         yAnimator?.cancel()
+        snapAnimator?.cancel()
         if (!animate || !isAttached) {
             params.y = y
             if (isAttached) updateLayout()
@@ -297,16 +331,28 @@ class FloatingMicOverlay(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (velocityTracker == null) {
+            velocityTracker = VelocityTracker.obtain()
+        }
+        velocityTracker?.addMovement(event)
+
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 yAnimator?.cancel()
+                snapAnimator?.cancel()
                 isDragging = false
                 isHoldRecording = false
-                initialX = params.x
+                initialY = params.y
                 initialTouchX = event.rawX
                 initialTouchY = event.rawY
                 bubblePressed = true
-                if (state == BubbleState.IDLE) postDelayed(holdRunnable, HOLD_THRESHOLD_MS)
+
+                val screenW = screenWidth()
+                val bubbleW = measuredWidth.takeIf { it > 0 } ?: dp(56)
+                dragStartScreenX = if (dockedRight) screenW - params.x - bubbleW else params.x
+                dragStartScreenY = params.y
+
+                if (state == BubbleState.IDLE && expanded) postDelayed(holdRunnable, HOLD_THRESHOLD_MS)
             }
             MotionEvent.ACTION_MOVE -> {
                 val dx = event.rawX - initialTouchX
@@ -318,79 +364,106 @@ class FloatingMicOverlay(
                         isHoldRecording = false
                         onHoldCancel()
                     }
+                    performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 }
                 if (isDragging) {
-                    params.x = initialX + (if (dockedRight) -dx else dx).toInt()
-                    clampToScreen()
+                    val screenW = screenWidth()
+                    val bubbleW = measuredWidth.takeIf { it > 0 } ?: dp(56)
+                    val edgeMargin = dp(10)
+
+                    params.gravity = Gravity.TOP or Gravity.START
+                    params.x = (dragStartScreenX + dx.toInt()).coerceIn(edgeMargin, screenW - bubbleW - edgeMargin)
+                    params.y = (dragStartScreenY + dy.toInt()).coerceIn(minY(), maxY())
                     updateLayout()
                 }
             }
             MotionEvent.ACTION_UP -> {
                 removeCallbacks(holdRunnable)
                 bubblePressed = false
-                when {
-                    isDragging -> endDrag()
-                    isHoldRecording -> {
+                if (isDragging) {
+                    velocityTracker?.computeCurrentVelocity(1000)
+                    val xVel = velocityTracker?.xVelocity ?: 0f
+                    velocityTracker?.recycle()
+                    velocityTracker = null
+                    endDragWithFling(xVel)
+                } else {
+                    velocityTracker?.recycle()
+                    velocityTracker = null
+                    if (isHoldRecording) {
                         isHoldRecording = false
                         onHoldEnd()
+                    } else {
+                        performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                        onTap()
                     }
-                    else -> onTap()
                 }
             }
             MotionEvent.ACTION_CANCEL -> {
                 removeCallbacks(holdRunnable)
                 bubblePressed = false
+                velocityTracker?.recycle()
+                velocityTracker = null
                 if (isHoldRecording) {
                     isHoldRecording = false
                     onHoldCancel()
                 }
-                if (isDragging) endDrag()
+                if (isDragging) endDragWithFling(0f)
             }
         }
         return true
     }
 
-    private fun endDrag() {
+    private fun endDragWithFling(xVel: Float) {
         isDragging = false
-        snapToNearestEdge()
-        applyDock(animate = true)
-    }
-
-    private fun snapToNearestEdge() {
-        val margin = dp(12)
         val screenW = screenWidth()
         val bubbleW = measuredWidth.takeIf { it > 0 } ?: dp(56)
-        val left = if (dockedRight) screenW - params.x - bubbleW else params.x
-        dockedRight = left + bubbleW / 2 >= screenW / 2
-        params.gravity = edgeGravity()
-        params.x = if (dockedRight) screenW - left - bubbleW else left
-        ValueAnimator.ofInt(params.x, margin).apply {
+        val edgeMargin = dp(10)
+        val currentLeft = params.x
+        val centerX = currentLeft + bubbleW / 2
+        val flingThreshold = dp(350).toFloat()
+
+        dockedRight = when {
+            xVel > flingThreshold -> true
+            xVel < -flingThreshold -> false
+            else -> centerX >= screenW / 2
+        }
+
+        val targetScreenX = if (dockedRight) screenW - bubbleW - edgeMargin else edgeMargin
+        snapAnimator?.cancel()
+        snapAnimator = ValueAnimator.ofInt(params.x, targetScreenX).apply {
             duration = 240L
-            interpolator = DecelerateInterpolator(1.4f)
+            interpolator = DecelerateInterpolator(1.6f)
             addUpdateListener {
                 params.x = it.animatedValue as Int
-                clampToScreen()
                 updateLayout()
             }
             doOnEnd {
+                params.gravity = edgeGravity()
+                params.x = edgeMargin
+                updateLayout()
                 prefs.edit()
-                    .putInt(PREF_EDGE_OFFSET, params.x)
                     .putInt(PREF_EDGE_Y, params.y)
+                    .putInt(PREF_EDGE_OFFSET, edgeMargin)
                     .putBoolean(PREF_DOCKED_RIGHT, dockedRight)
                     .apply()
+                performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
             }
             start()
         }
     }
 
+    private fun minY(): Int = dp(44)
+    private fun maxY(): Int {
+        val bubbleH = measuredHeight.takeIf { it > 0 } ?: dp(56)
+        return (screenHeight() - bubbleH - dp(70)).coerceAtLeast(dp(44))
+    }
+
     private fun edgeGravity(): Int = Gravity.TOP or if (dockedRight) Gravity.END else Gravity.START
 
     private fun clampToScreen() {
-        val margin = dp(8)
-        val bubbleW = measuredWidth.takeIf { it > 0 } ?: dp(56)
-        val bubbleH = measuredHeight.takeIf { it > 0 } ?: dp(56)
-        params.x = params.x.coerceIn(margin, (screenWidth() - bubbleW - margin).coerceAtLeast(margin))
-        params.y = params.y.coerceIn(margin, (screenHeight() - bubbleH - margin).coerceAtLeast(margin))
+        val margin = dp(10)
+        params.x = margin
+        params.y = params.y.coerceIn(minY(), maxY())
     }
 
     private fun updateLayout() {
@@ -399,7 +472,7 @@ class FloatingMicOverlay(
 
     private fun updateContentDescription() {
         if (!expanded && state == BubbleState.IDLE) {
-            contentDescription = "Dictation ready. Tap to talk."
+            contentDescription = "reverseuno. Tap to open."
             return
         }
         contentDescription = when (state) {
