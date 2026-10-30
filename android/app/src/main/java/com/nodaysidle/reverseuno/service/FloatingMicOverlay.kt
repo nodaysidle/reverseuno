@@ -37,8 +37,8 @@ import kotlin.math.abs
 
 /**
  * Accessibility-overlay window hosting the Compose dictation bubble.
- * Keyboard-aware: [setVisible] + [anchorAboveKeyboard] keep it just above the IME;
- * hidden keeps the window attached but transparent and untouchable.
+ * Collapsed while there is no text field it can fill: a small dot at the screen edge.
+ * [expand] opens it into the pill when an editable field is focused.
  * Tap toggles recording, a long press records until release, a drag moves it along the keyboard.
  */
 class FloatingMicOverlay(
@@ -56,6 +56,8 @@ class FloatingMicOverlay(
 
     var state by mutableStateOf(BubbleState.IDLE)
         private set
+    var expanded by mutableStateOf(false)
+        private set
     private var message by mutableStateOf("")
     private var composeRevealed by mutableStateOf(false)
     private var bubblePressed by mutableStateOf(false)
@@ -65,7 +67,7 @@ class FloatingMicOverlay(
     private var isAttached = false
     private var initialX = 0
     /** params.x is the distance from this edge, so wider states (messages) grow away from it and stay on screen. */
-    private var dockedRight = prefs.getBoolean(PREF_DOCKED_RIGHT, false)
+    private var dockedRight = prefs.getBoolean(PREF_DOCKED_RIGHT, true)
     private var initialTouchX = 0f
     private var initialTouchY = 0f
     private var isDragging = false
@@ -74,7 +76,6 @@ class FloatingMicOverlay(
 
     private var visibleRequested = false
     private var revealed = false
-    private var keyboardTop: Int? = null
     private var yAnimator: ValueAnimator? = null
     private val concealRunnable = Runnable { conceal() }
     private val holdRunnable = Runnable {
@@ -85,6 +86,11 @@ class FloatingMicOverlay(
     }
 
     init {
+        // Dock v2: the idle pill lives at a screen edge, never above the keyboard. The y saved by
+        // the old always-above-keyboard build would put it right back there, so drop it once.
+        if (prefs.getInt(PREF_DOCK_VERSION, 0) < DOCK_VERSION) {
+            prefs.edit().remove(PREF_EDGE_Y).putInt(PREF_DOCK_VERSION, DOCK_VERSION).apply()
+        }
         isClickable = true
         clipChildren = false
         setViewTreeLifecycleOwner(owner)
@@ -93,7 +99,11 @@ class FloatingMicOverlay(
         addView(
             view.apply {
                 setContent {
-                    val restingAlpha = if (state == BubbleState.IDLE) IDLE_ALPHA else 1f
+                    val restingAlpha = when {
+                        state != BubbleState.IDLE -> 1f
+                        expanded -> PILL_ALPHA
+                        else -> DOT_ALPHA
+                    }
                     val alpha by animateFloatAsState(
                         if (composeRevealed) restingAlpha else 0f,
                         tween(if (composeRevealed) FADE_IN_MS else FADE_OUT_MS),
@@ -113,7 +123,8 @@ class FloatingMicOverlay(
                         state,
                         levels,
                         message,
-                        Modifier.graphicsLayer {
+                        expanded = expanded,
+                        modifier = Modifier.graphicsLayer {
                             this.alpha = alpha
                             scaleX = scale
                             scaleY = scale
@@ -136,9 +147,9 @@ class FloatingMicOverlay(
             fitInsetsTypes = 0
             // Otherwise the window is kept out of the camera cutout band and lands that much lower than y says.
             layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-            // First run: a quiet capsule near the lower third, like a system overlay.
-            x = prefs.getInt(PREF_EDGE_OFFSET, (screenWidth() - dp(56)) / 2)
-            y = prefs.getInt(PREF_EDGE_Y, (screenHeight() * 0.72f).toInt())
+            // First run: tucked against the right edge, away from the keyboard and the field's buttons.
+            x = prefs.getInt(PREF_EDGE_OFFSET, dp(12))
+            y = prefs.getInt(PREF_EDGE_Y, (screenHeight() * DOCK_Y_FRACTION).toInt())
         }
         updateContentDescription()
     }
@@ -174,10 +185,16 @@ class FloatingMicOverlay(
         applyVisibility()
     }
 
-    /** Pins the bubble just above the keyboard top (screen y); null leaves it where it is. */
-    fun anchorAboveKeyboard(imeTop: Int?) {
-        keyboardTop = imeTop
-        if (imeTop != null && !isDragging) moveToY(anchoredY(imeTop), animate = revealed)
+    /** Opens the dot into the pill when an editable field is focused; folds it back when not. */
+    fun expand(value: Boolean) {
+        if (expanded == value) return
+        expanded = value
+        updateContentDescription()
+        applyVisibility()
+        post {
+            clampToScreen()
+            updateLayout()
+        }
     }
 
     fun setState(newState: BubbleState, text: String = "") {
@@ -186,6 +203,7 @@ class FloatingMicOverlay(
         if (newState != BubbleState.RECORDING) levels.indices.forEach { levels[it] = 0f }
         updateContentDescription()
         applyVisibility()
+        applyDock(animate = true)
     }
 
     /** Live words while recording; ignored outside RECORDING so a final state is never overwritten. */
@@ -243,13 +261,22 @@ class FloatingMicOverlay(
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         if (!isAttached || oldw == 0) return
-        keyboardTop?.let { params.y = anchoredY(it) }
+        params.y = dockY()
         clampToScreen()
         updateLayout()
     }
 
-    private fun anchoredY(imeTop: Int): Int =
-        keyboardAnchoredY(imeTop, measuredHeight.takeIf { it > 0 } ?: dp(56), dp(KEYBOARD_GAP_DP), dp(8))
+    private fun applyDock(animate: Boolean) {
+        if (isDragging) return
+        moveToY(dockY(), animate)
+    }
+
+    /** Idle resting place: the edge y the user dragged it to, defaulting to the upper third. */
+    private fun dockY(): Int {
+        val saved = prefs.getInt(PREF_EDGE_Y, (screenHeight() * DOCK_Y_FRACTION).toInt())
+        val height = measuredHeight.takeIf { it > 0 } ?: dp(56)
+        return saved.coerceIn(dp(8), (screenHeight() - height - dp(8)).coerceAtLeast(dp(8)))
+    }
 
     private fun moveToY(y: Int, animate: Boolean) {
         yAnimator?.cancel()
@@ -326,7 +353,7 @@ class FloatingMicOverlay(
     private fun endDrag() {
         isDragging = false
         snapToNearestEdge()
-        keyboardTop?.let { moveToY(anchoredY(it), animate = true) }
+        applyDock(animate = true)
     }
 
     private fun snapToNearestEdge() {
@@ -371,6 +398,10 @@ class FloatingMicOverlay(
     }
 
     private fun updateContentDescription() {
+        if (!expanded && state == BubbleState.IDLE) {
+            contentDescription = "Dictation ready. Tap to talk."
+            return
+        }
         contentDescription = when (state) {
             BubbleState.IDLE -> "Start dictation. Hold to talk."
             BubbleState.RECORDING -> "Stop dictation"
@@ -388,21 +419,20 @@ class FloatingMicOverlay(
         const val PREF_EDGE_OFFSET = "floating_bubble_edge_offset"
         const val PREF_EDGE_Y = "floating_bubble_y"
         const val PREF_DOCKED_RIGHT = "floating_bubble_docked_right"
-        const val KEYBOARD_GAP_DP = 12
+        const val PREF_DOCK_VERSION = "floating_bubble_dock_version"
         const val HIDE_GRACE_MS = 150L
         const val FADE_IN_MS = 150
         const val FADE_OUT_MS = 120
         const val MOVE_MS = 180L
         const val HOLD_THRESHOLD_MS = 300L
-        const val IDLE_ALPHA = 0.9f
+        const val PILL_ALPHA = 0.92f
+        const val DOT_ALPHA = 0.8f
+        const val DOCK_Y_FRACTION = 0.28f
+        const val DOCK_VERSION = 2
         const val HIDDEN_SCALE = 0.9f
         const val PRESSED_SCALE = 0.94f
     }
 }
-
-/** Window y that puts a bubble of [bubbleHeight] [gap] px above the keyboard top, never above [minY]. */
-internal fun keyboardAnchoredY(imeTop: Int, bubbleHeight: Int, gap: Int, minY: Int): Int =
-    (imeTop - bubbleHeight - gap).coerceAtLeast(minY)
 
 /** A service has no lifecycle Compose can attach to; this one stays resumed for the overlay's lifetime. */
 private class OverlayLifecycleOwner : SavedStateRegistryOwner {

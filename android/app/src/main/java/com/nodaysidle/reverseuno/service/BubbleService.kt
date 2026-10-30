@@ -62,7 +62,7 @@ class BubbleService : Service() {
                 onHoldCancel = { BubbleRuntime.controller?.onHoldCancel() },
             )
             overlay.show()
-            overlay.setVisible(false)
+            overlay.setVisible(true)
             view = overlay
             BubbleRuntime.attach(overlay)
         }.onFailure { Log.e(TAG, "Overlay attach failed", it) }

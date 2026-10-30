@@ -1,9 +1,10 @@
 # reverseuno for Android
 
 The same dictation hub, rebuilt natively in Kotlin and Jetpack Compose. Instead of
-holding Right Super, a floating bubble appears just above the keyboard in any text
-field. Tap it to start and stop, or hold it and talk. The polished text lands in the
-field you are typing in.
+holding Right Super, a small dot rests at the screen edge. Open a browser, a chat or an
+editor and it opens into the pill; tap to start and stop, or hold it and talk. The
+polished text lands in the field you are typing in. Drag it to another edge and it stays
+there, out of the way of the field's buttons.
 
 ```text
 tap the bubble → speak → tap again
@@ -16,7 +17,7 @@ tap the bubble → speak → tap again
 | Piece | Where |
 |---|---|
 | Hub pages: Home, Dictionary, Snippets, Style, Settings | `ui/*Screen.kt`, look in `ui/Theme.kt` + `ui/Components.kt` |
-| Bubble and text insertion (from Voice Anywhere 0.5.0) | `service/`, `ui/DictationBubble.kt` |
+| Dot, pill and text insertion (from Voice Anywhere 0.5.0) | `service/`, `ui/DictationBubble.kt` |
 | Pipeline: STT → sanitize → snippet or cleanup → dictionary | `dictation/Pipeline.kt` |
 | Ports of `src/shared` and `src/main/format.ts` / `store.ts` | `core/`, `cleanup/` |
 | API keys (Keystore-backed EncryptedSharedPreferences) | `security/KeyVault.kt` |

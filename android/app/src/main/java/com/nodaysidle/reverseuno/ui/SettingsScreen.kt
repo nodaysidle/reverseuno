@@ -112,7 +112,7 @@ fun SettingsScreen(data: StoreData) {
             Section("Dictation", "The bubble, the microphone, and the language you speak.") {
                 SettingRow(
                     "Floating bubble",
-                    "Appears above the keyboard in any text field. Tap to start and stop, hold to talk.",
+                    "A small dot at the screen edge. It opens into the pill when you type; tap to start and stop, hold to talk.",
                     divider = false,
                 ) {
                     Toggle(settings.bubble.enabled, {

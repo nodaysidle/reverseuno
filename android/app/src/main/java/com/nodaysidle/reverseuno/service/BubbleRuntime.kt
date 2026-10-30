@@ -26,8 +26,7 @@ object BubbleRuntime {
 
     @Volatile var controller: BubbleController? = null
 
-    private var requestedVisible = false
-    private var imeTop: Int? = null
+    private var requestedExpanded = false
     @Volatile private var lastStartAttemptMs = 0L
 
     /** Starts the foreground host when the bubble is enabled and the overlay permission is granted. */
@@ -51,20 +50,20 @@ object BubbleRuntime {
         if (enabled) start(context) else stop(context)
     }
 
-    /** Applying show/hide from accessibility events; no-op until the service has attached the view. */
-    fun applyContext(show: Boolean, imeTop: Int?) {
-        requestedVisible = show
-        this.imeTop = imeTop
+    /** Opens or folds the pill from accessibility events; no-op until the service has attached the view. */
+    fun applyContext(expanded: Boolean) {
+        requestedExpanded = expanded
         val view = overlay ?: return
-        view.setVisible(show)
-        view.anchorAboveKeyboard(imeTop)
-        if (show) view.show()
+        view.setVisible(true)
+        view.expand(expanded)
+        view.show()
     }
 
     fun attach(view: FloatingMicOverlay) {
         overlay = view
-        view.setVisible(requestedVisible)
-        view.anchorAboveKeyboard(imeTop)
+        view.setVisible(true)
+        view.expand(requestedExpanded)
+        view.show()
     }
 
     fun detach() {

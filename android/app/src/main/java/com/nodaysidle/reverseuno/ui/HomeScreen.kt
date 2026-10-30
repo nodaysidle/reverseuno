@@ -305,8 +305,8 @@ private fun RecordButton(micOn: Boolean, askMic: () -> Unit, modifier: Modifier)
     }
     DictationBubble(
         bubble, levels, "",
-        modifier
-            .clip(RoundedCornerShape(20.dp))
+        modifier = modifier
+            .clip(RoundedCornerShape(24.dp))
             .clickable(
                 enabled = state.phase != HubPhase.WORKING,
                 role = Role.Button,

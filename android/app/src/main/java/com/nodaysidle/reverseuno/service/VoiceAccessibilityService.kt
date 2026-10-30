@@ -76,7 +76,7 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (!Store.settings.bubble.enabled) {
-            BubbleRuntime.applyContext(false, null)
+            BubbleRuntime.applyContext(false)
             return
         }
         val eventPackage = event?.packageName?.toString().orEmpty()
@@ -106,7 +106,7 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
             ),
             ownPackage = this.packageName,
         )
-        BubbleRuntime.applyContext(decision.show, if (decision.show) imeTop() else null)
+        BubbleRuntime.applyContext(decision.show)
     }
 
     override fun onTap() = onBubbleTap()
@@ -116,13 +116,6 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
     override fun onHoldEnd() = finishRecording()
 
     override fun onHoldCancel() = cancelRecording()
-
-    /** Top of the visible IME window in screen pixels; null when no keyboard is shown. */
-    private fun imeTop(): Int? {
-        val ime = windows.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD } ?: return null
-        val bounds = Rect().also(ime::getBoundsInScreen)
-        return bounds.top.takeUnless { bounds.isEmpty }
-    }
 
     private fun hasImeWindow(): Boolean =
         windows.any { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
@@ -135,7 +128,7 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
         cancelRecording()
         if (activeService === this) activeService = null
         if (BubbleRuntime.controller === this) BubbleRuntime.controller = null
-        BubbleRuntime.applyContext(false, null)
+        BubbleRuntime.applyContext(false)
         scope.cancel()
         super.onDestroy()
     }
