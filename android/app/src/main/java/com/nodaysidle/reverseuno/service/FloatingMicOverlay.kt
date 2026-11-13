@@ -41,6 +41,8 @@ import kotlin.math.abs
  * Collapsed while there is no text field it can fill: a small dot at the screen edge.
  * [expand] opens it into the pill when an editable field is focused.
  * Tap toggles recording, a long press records until release, a drag slides it up or down its edge.
+ * Dropping it on the target that appears at the bottom while dragging dismisses it.
+ * It moves above the keyboard while the keyboard would cover it, and stays hidden while locked.
  */
 class FloatingMicOverlay(
     context: Context,
@@ -49,6 +51,7 @@ class FloatingMicOverlay(
     private val onHoldStart: () -> Unit,
     private val onHoldEnd: () -> Unit,
     private val onHoldCancel: () -> Unit,
+    private val onDismiss: () -> Unit = {},
 ) : FrameLayout(context) {
 
     private val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -84,6 +87,12 @@ class FloatingMicOverlay(
     private var snapAnimator: ValueAnimator? = null
 
     private var visibleRequested = false
+    /** Keyguard showing: hidden whatever the state, as Typeless does. */
+    private var locked = false
+    /** Top of the keyboard in screen pixels while one is showing. */
+    private var keyboardTop: Int? = null
+    private val dismissTarget by lazy { DismissTarget(context, windowType) }
+    private var overDismiss = false
     private var revealed = false
     private var yAnimator: ValueAnimator? = null
     private val concealRunnable = Runnable { conceal() }
@@ -185,10 +194,33 @@ class FloatingMicOverlay(
         snapAnimator?.cancel()
         velocityTracker?.recycle()
         velocityTracker = null
+        dismissTarget.remove()
         runCatching { windowManager.removeView(this) }
         isAttached = false
         revealed = false
         composeRevealed = false
+    }
+
+    /** Carries the visible state over when the window moves to another host (accessibility overlay <-> app overlay). */
+    fun adoptFrom(other: FloatingMicOverlay) {
+        visibleRequested = other.visibleRequested
+        locked = other.locked
+        keyboardTop = other.keyboardTop
+        latchedClosed = other.latchedClosed
+        expanded = other.expanded
+        setState(other.state, other.message, other.sticky)
+    }
+
+    fun setLocked(value: Boolean) {
+        if (locked == value) return
+        locked = value
+        applyVisibility()
+    }
+
+    fun setKeyboardTop(top: Int?) {
+        if (keyboardTop == top) return
+        keyboardTop = top
+        applyDock(animate = true)
     }
 
     /** Requested visibility; a non-idle dictation state keeps the bubble visible regardless. */
@@ -266,7 +298,7 @@ class FloatingMicOverlay(
     }
 
     private fun applyVisibility() {
-        val want = visibleRequested || (state != BubbleState.IDLE && !sticky)
+        val want = !locked && (visibleRequested || (state != BubbleState.IDLE && !sticky))
         removeCallbacks(concealRunnable)
         when {
             !isAttached -> revealed = want
@@ -311,11 +343,11 @@ class FloatingMicOverlay(
         moveToY(dockY(), animate)
     }
 
-    /** Idle resting place: the edge y the user dragged it to, defaulting to the upper third. */
+    /** Resting place: the edge y the user dragged it to (default upper third), lifted above a covering keyboard. */
     private fun dockY(): Int {
         val saved = prefs.getInt(PREF_EDGE_Y, (screenHeight() * DOCK_Y_FRACTION).toInt())
         val height = measuredHeight.takeIf { it > 0 } ?: dp(56)
-        return saved.coerceIn(minY(), maxY())
+        return dockedY(saved, minY(), maxY(), height, keyboardTop, dp(KEYBOARD_GAP_DP))
     }
 
     private fun moveToY(y: Int, animate: Boolean) {
@@ -373,6 +405,8 @@ class FloatingMicOverlay(
                         onHoldCancel()
                     }
                     performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    overDismiss = false
+                    dismissTarget.show()
                 }
                 if (isDragging) {
                     val screenW = screenWidth()
@@ -381,8 +415,15 @@ class FloatingMicOverlay(
 
                     params.gravity = Gravity.TOP or Gravity.START
                     params.x = (dragStartScreenX + dx.toInt()).coerceIn(edgeMargin, screenW - bubbleW - edgeMargin)
-                    params.y = (dragStartScreenY + dy.toInt()).coerceIn(minY(), maxY())
+                    params.y = (dragStartScreenY + dy.toInt()).coerceIn(minY(), screenHeight() - (measuredHeight.takeIf { it > 0 } ?: dp(56)))
                     updateLayout()
+                    val bubbleH = measuredHeight.takeIf { it > 0 } ?: dp(56)
+                    val over = inDismissZone(params.x + bubbleW / 2, params.y + bubbleH / 2, screenW, screenHeight(), dismissTarget.zoneHeightPx)
+                    if (over != overDismiss) {
+                        overDismiss = over
+                        dismissTarget.setHot(over)
+                        if (over) performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                    }
                 }
             }
             MotionEvent.ACTION_UP -> {
@@ -393,7 +434,8 @@ class FloatingMicOverlay(
                     val xVel = velocityTracker?.xVelocity ?: 0f
                     velocityTracker?.recycle()
                     velocityTracker = null
-                    endDragWithFling(xVel)
+                    dismissTarget.remove()
+                    if (overDismiss) dismissDrop() else endDragWithFling(xVel)
                 } else {
                     velocityTracker?.recycle()
                     velocityTracker = null
@@ -415,10 +457,26 @@ class FloatingMicOverlay(
                     isHoldRecording = false
                     onHoldCancel()
                 }
-                if (isDragging) endDragWithFling(0f)
+                dismissTarget.remove()
+                if (isDragging) {
+                    if (overDismiss) dismissDrop() else endDragWithFling(0f)
+                }
             }
         }
         return true
+    }
+
+    /** Dropped on the target: fade out and go back to the saved edge position (not where it was dropped). */
+    private fun dismissDrop() {
+        isDragging = false
+        overDismiss = false
+        params.gravity = edgeGravity()
+        params.x = dp(10)
+        visibleRequested = false
+        onDismiss()
+        conceal()
+        params.y = dockY()
+        updateLayout()
     }
 
     private fun endDragWithFling(xVel: Float) {
@@ -455,6 +513,8 @@ class FloatingMicOverlay(
                     .putBoolean(PREF_DOCKED_RIGHT, dockedRight)
                     .apply()
                 performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                // Dropped over the keyboard: the saved spot is kept for when it closes, but it rests above it now.
+                moveToY(dockY(), animate = true)
             }
             start()
         }
@@ -510,6 +570,7 @@ class FloatingMicOverlay(
         const val DOT_ALPHA = 0.8f
         const val DOCK_Y_FRACTION = 0.28f
         const val DOCK_VERSION = 2
+        const val KEYBOARD_GAP_DP = 12
         const val HIDDEN_SCALE = 0.9f
         const val PRESSED_SCALE = 0.94f
     }

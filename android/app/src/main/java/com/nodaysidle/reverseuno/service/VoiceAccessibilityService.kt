@@ -5,6 +5,7 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.InputMethod
 import android.content.BroadcastReceiver
 import android.content.ClipData
+import android.app.KeyguardManager
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
@@ -72,12 +73,26 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
     private var lastEditablePackage: String = ""
     private var lastEditableCapturedAtMillis: Long = 0
     private lateinit var guards: RecordingGuards
-    /** Screen off mid-recording: stop and keep the audio for a retry instead of typing into a locked phone. */
-    private val screenOffReceiver = object : BroadcastReceiver() {
+    /**
+     * Screen and keyguard: the bubble hides on SCREEN_OFF and stays hidden while the keyguard is
+     * up, until USER_PRESENT. Screen off mid-recording stops and keeps the audio for a retry.
+     */
+    private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action == Intent.ACTION_SCREEN_OFF && isRecording) saveForLater("Screen turned off")
+            when (intent.action) {
+                Intent.ACTION_SCREEN_OFF -> {
+                    if (isRecording) saveForLater("Screen turned off")
+                    BubbleRuntime.setLocked(true)
+                }
+                // No lock screen set up (or still unlocked): SCREEN_ON is all we get.
+                Intent.ACTION_SCREEN_ON -> BubbleRuntime.setLocked(isKeyguardLocked())
+                Intent.ACTION_USER_PRESENT -> BubbleRuntime.setLocked(false)
+            }
         }
     }
+
+    private fun isKeyguardLocked(): Boolean =
+        getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -92,12 +107,18 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
                 finishRecording()
             }
         }
-        ContextCompat.registerReceiver(this, screenOffReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF), ContextCompat.RECEIVER_NOT_EXPORTED)
+        val screenEvents = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_USER_PRESENT)
+        }
+        ContextCompat.registerReceiver(this, screenReceiver, screenEvents, ContextCompat.RECEIVER_NOT_EXPORTED)
+        BubbleRuntime.setLocked(isKeyguardLocked())
         // A dictation that was mid-transcription when the process died becomes retryable, and
         // recordings nothing points at (crash during recording) are removed.
         Store.recoverInterrupted()
         Store.sweepRecordings(DictationAudioRecorder.recordingsDir(this))
-        BubbleRuntime.start(this)
+        BubbleRuntime.hostInAccessibility(this)
         scope.launch { Store.data.collect { clearRetryableIfResolved(it.history) } }
         onAccessibilityEvent(null)
     }
@@ -108,6 +129,10 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
             return
         }
         val eventPackage = event?.packageName?.toString().orEmpty()
+        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            dismissedPackage = dismissedAfterWindowChange(dismissedPackage, eventPackage, packageName)
+        }
+        BubbleRuntime.setKeyboardTop(keyboardTop())
         val source = event?.source
         val activeNode = source?.takeIf { node ->
             node.isEditable && shouldCacheEditablePackage(node.packageName?.toString().orEmpty().ifBlank { eventPackage })
@@ -134,7 +159,21 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
             ),
             ownPackage = this.packageName,
         )
-        BubbleRuntime.applyContext(decision.show)
+        val fieldPackage = activeNode?.packageName?.toString().orEmpty().ifBlank { eventPackage }
+        // Dropped on the dismiss target: stays hidden in that app until you leave it.
+        BubbleRuntime.applyContext(decision.show && fieldPackage != dismissedPackage)
+    }
+
+    /** Top of the visible keyboard in screen pixels (the largest IME window), or null. */
+    private fun keyboardTop(): Int? {
+        val bounds = Rect()
+        var best: Rect? = null
+        runCatching { windows }.getOrNull()?.forEach { window ->
+            if (window.type != AccessibilityWindowInfo.TYPE_INPUT_METHOD) return@forEach
+            window.getBoundsInScreen(bounds)
+            if (bounds.height() > 0 && (best == null || bounds.height() > best!!.height())) best = Rect(bounds)
+        }
+        return best?.top
     }
 
     override fun onTap() = onBubbleTap()
@@ -144,6 +183,18 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
     override fun onHoldEnd() = finishRecording()
 
     override fun onHoldCancel() = cancelRecording()
+
+    /** Dropped on the dismiss target: hide in this app, and drop the retry offer (the entry stays in History). */
+    override fun onDismiss() {
+        if (isRecording) cancelRecording()
+        dismissedPackage = lastEditablePackage.ifBlank { null }
+        Log.i(TAG, "Bubble dismissed in $dismissedPackage")
+        if (processingJob?.isActive == true) return
+        retryableEntryId = null
+        feedbackJob?.cancel()
+        overlay?.setState(BubbleState.IDLE)
+        BubbleRuntime.applyContext(false)
+    }
 
     private fun hasImeWindow(): Boolean =
         windows.any { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
@@ -155,7 +206,8 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
     override fun onDestroy() {
         // The system can recreate this service at any time; what was said so far is kept.
         if (isRecording) saveForLater("Interrupted")
-        runCatching { unregisterReceiver(screenOffReceiver) }
+        runCatching { unregisterReceiver(screenReceiver) }
+        BubbleRuntime.releaseAccessibilityHost(this)
         if (::guards.isInitialized) guards.releaseAll()
         if (activeService === this) activeService = null
         if (BubbleRuntime.controller === this) BubbleRuntime.controller = null
@@ -627,6 +679,9 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
          * hub opens), and a per-instance id would leave a "tap to retry" pill that records instead.
          */
         @Volatile private var retryableEntryId: String? = null
+
+        /** App the pill was dismissed in; process-wide for the same reason as [retryableEntryId]. */
+        @Volatile private var dismissedPackage: String? = null
 
         fun updateOverlayVisibility(context: Context, enabled: Boolean) {
             BubbleRuntime.setEnabled(context, enabled)

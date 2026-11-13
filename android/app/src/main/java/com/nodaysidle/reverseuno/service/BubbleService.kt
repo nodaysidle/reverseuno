@@ -9,7 +9,6 @@ import android.content.Intent
 import android.os.IBinder
 import android.provider.Settings
 import android.util.Log
-import android.view.WindowManager
 import androidx.core.app.NotificationCompat
 import com.nodaysidle.reverseuno.MainActivity
 import com.nodaysidle.reverseuno.R
@@ -31,39 +30,28 @@ class BubbleService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (view == null) attachOverlay()
+        if (BubbleRuntime.overlay == null) attachOverlay()
         return START_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
-        BubbleRuntime.detach()
-        view?.hide()
+        view?.let { BubbleRuntime.detach(it); it.hide() }
         view = null
         stopForeground(STOP_FOREGROUND_REMOVE)
         super.onDestroy()
     }
 
     private fun attachOverlay() {
+        // While the accessibility service is connected it hosts the bubble as an accessibility overlay.
+        if (BubbleRuntime.isAccessibilityHosted) return
         if (!Settings.canDrawOverlays(this)) {
             Log.w(TAG, "Overlay permission missing; bubble not attached")
             return
         }
         runCatching {
-            val overlay = FloatingMicOverlay(
-                context = this,
-                windowType = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                onTap = {
-                    val controller = BubbleRuntime.controller
-                    if (controller != null) controller.onTap() else openAccessibility()
-                },
-                onHoldStart = { BubbleRuntime.controller?.onHoldStart() },
-                onHoldEnd = { BubbleRuntime.controller?.onHoldEnd() },
-                onHoldCancel = { BubbleRuntime.controller?.onHoldCancel() },
-            )
-            overlay.show()
-            overlay.setVisible(true)
+            val overlay = BubbleRuntime.newAppOverlay(this) { openAccessibility() }
             view = overlay
             BubbleRuntime.attach(overlay)
         }.onFailure { Log.e(TAG, "Overlay attach failed", it) }
