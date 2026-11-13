@@ -1,6 +1,5 @@
 package com.nodaysidle.reverseuno.stt
 
-import android.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -9,6 +8,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.File
+import java.util.Base64
 import java.util.concurrent.TimeUnit
 
 data class SttResult(val text: String, val language: String)
@@ -29,12 +29,7 @@ class OpenRouterSttClient(
         require(apiKey.isNotBlank()) { "OpenRouter API key is missing" }
         require(audio.length() > 0) { "No audio to transcribe" }
 
-        val body = JSONObject()
-            .put("model", model)
-            .put("input_audio", JSONObject().put("data", Base64.encodeToString(audio.readBytes(), Base64.NO_WRAP)).put("format", audio.extension.lowercase()))
-        if (Regex("^[a-z]{2}$", RegexOption.IGNORE_CASE).matches(language)) body.put("language", language.lowercase())
-        val hint = sttPrompt(keyterms)
-        if (hint.isNotEmpty()) body.put("prompt", hint)
+        val body = openRouterSttBody(model, audio.readBytes(), audio.extension, language, keyterms)
 
         var (code, payload) = sendWithRetry(body)
         if (code == 400 && body.has("prompt")) {
@@ -93,6 +88,25 @@ class OpenRouterSttClient(
 }
 
 private const val PROMPT_MAX_CHARS = 600
+
+/** Formats OpenRouter's /audio/transcriptions accepts in `input_audio.format` (support varies by model). */
+internal val OPENROUTER_AUDIO_FORMATS = setOf("wav", "mp3", "flac", "m4a", "ogg", "webm", "aac")
+
+/**
+ * The /audio/transcriptions request: JSON with base64 audio under `input_audio {data, format}`
+ * (not an OpenAI-style multipart upload). Language is sent only as an ISO-639-1 code.
+ */
+internal fun openRouterSttBody(model: String, audio: ByteArray, extension: String, language: String, keyterms: List<String>): JSONObject {
+    val format = extension.lowercase()
+    require(format in OPENROUTER_AUDIO_FORMATS) { "OpenRouter cannot take .$format audio" }
+    val body = JSONObject()
+        .put("model", model)
+        .put("input_audio", JSONObject().put("data", Base64.getEncoder().encodeToString(audio)).put("format", format))
+    if (Regex("^[a-z]{2}$", RegexOption.IGNORE_CASE).matches(language)) body.put("language", language.lowercase())
+    val hint = sttPrompt(keyterms)
+    if (hint.isNotEmpty()) body.put("prompt", hint)
+    return body
+}
 
 internal fun sttPrompt(keyterms: List<String>, maxChars: Int = PROMPT_MAX_CHARS): String {
     var text = ""

@@ -20,6 +20,7 @@ import com.nodaysidle.reverseuno.MainActivity
 import com.nodaysidle.reverseuno.core.Settings
 import com.nodaysidle.reverseuno.core.Store
 import com.nodaysidle.reverseuno.core.preferredSpellings
+import com.nodaysidle.reverseuno.core.usesStreaming
 import com.nodaysidle.reverseuno.dictation.Pipeline
 import com.nodaysidle.reverseuno.dictation.Target
 import com.nodaysidle.reverseuno.dictation.Transcript
@@ -318,9 +319,9 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
         showFeedback(feedback.state, "Copied, paste it", feedback.holdMillis)
     }
 
-    /** Null when streaming is off or the selected provider has no key; the one-shot path then runs. */
+    /** Null when streaming is off, OpenRouter is the provider, or the selected provider has no key; the one-shot path then runs. */
     private fun createStreamer(settings: Settings, keyterms: List<String>): StreamingStt? {
-        if (!settings.stt.streaming) return null
+        if (!settings.stt.usesStreaming()) return null
         val language = settings.stt.language
         return runCatching {
             when (settings.stt.provider) {

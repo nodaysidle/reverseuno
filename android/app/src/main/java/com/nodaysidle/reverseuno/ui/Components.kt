@@ -47,6 +47,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.Dp
@@ -333,8 +334,9 @@ fun <T> Select(value: T, options: List<Pair<T, String>>, onChange: (T) -> Unit, 
                 .padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(options.firstOrNull { it.first == value }?.second ?: value.toString(), style = Type.body, color = Tokens.ink, modifier = Modifier.weight(1f, fill = false), maxLines = 1)
-            Spacer(Modifier.width(10.dp).weight(1f, fill = false))
+            Text(options.firstOrNull { it.first == value }?.second ?: value.toString(), style = Type.body, color = Tokens.ink, modifier = Modifier.weight(1f, fill = false), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            // Fixed gap: a weighted spacer would split the free width with the label and cut it in half.
+            Spacer(Modifier.width(10.dp))
             Icon(Lucide.ChevronDown, null, Modifier.size(16.dp), tint = Tokens.inkSoft)
         }
         DropdownMenu(open, onDismissRequest = { open = false }, containerColor = Tokens.paper2) {

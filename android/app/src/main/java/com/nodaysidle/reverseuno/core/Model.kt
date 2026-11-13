@@ -24,20 +24,31 @@ enum class WritingStyle(val label: String, val blurb: String) {
 
 @Serializable
 data class SttSettings(
-    /** OpenRouter transcription model id. */
+    /** OpenRouter transcription model id (any slug from /models?output_modalities=transcription). */
     val model: String = "openai/gpt-4o-mini-transcribe",
     /** "auto" leaves the language out so the model detects it per dictation. */
     val language: String = "auto",
     val keytermLimit: Int = 15,
     /** Stream PCM to the selected provider while recording; one-shot OpenRouter remains the fallback. */
     val streaming: Boolean = true,
-    /** Streaming provider id: "deepgram" or "xai". */
-    val provider: String = "deepgram",
+    /**
+     * "openrouter" uploads the recording once after you stop (no streaming);
+     * "deepgram" or "xai" stream while you speak, with OpenRouter as the fallback.
+     */
+    val provider: String = PROVIDER_OPENROUTER,
     /** Deepgram streaming model. Nova-3 matches the desktop build. */
     val deepgramModel: String = "nova-3",
     /** xAI streaming model. */
     val xaiModel: String = "grok-voice-transcribe-2.0",
 )
+
+const val PROVIDER_OPENROUTER = "openrouter"
+
+/** An OpenRouter model slug such as "openai/gpt-4o-mini-transcribe" (optionally with a ":variant"). */
+fun isModelSlug(id: String): Boolean = Regex("^[a-z0-9][a-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._:-]*$").matches(id)
+
+/** Streaming runs only for a streaming provider with streaming on; OpenRouter is always one upload. */
+fun SttSettings.usesStreaming(): Boolean = streaming && provider != PROVIDER_OPENROUTER
 
 @Serializable
 data class FormatSettings(

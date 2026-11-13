@@ -12,6 +12,7 @@ import com.nodaysidle.reverseuno.core.applyDictionary
 import com.nodaysidle.reverseuno.core.expandSnippet
 import com.nodaysidle.reverseuno.core.preferredSpellings
 import com.nodaysidle.reverseuno.core.sanitizeTranscript
+import com.nodaysidle.reverseuno.core.usesStreaming
 import com.nodaysidle.reverseuno.core.wordCount
 import com.nodaysidle.reverseuno.security.KeyVault
 import com.nodaysidle.reverseuno.security.Secret
@@ -43,13 +44,14 @@ class Pipeline(private val context: Context) {
     /** Null when some transcription path is configured; otherwise what the bubble should say. */
     fun setupProblem(): String? {
         val stt = Store.settings.stt
+        val oneShotReady = KeyVault.get(context, Secret.OPENROUTER).isNotBlank()
+        if (!stt.usesStreaming()) return if (oneShotReady) null else "Add an OpenRouter key"
         val streamingKey = when (stt.provider) {
             "xai" -> Secret.XAI
             else -> Secret.DEEPGRAM
         }
-        val streamReady = stt.streaming && KeyVault.get(context, streamingKey).isNotBlank()
-        val fallbackReady = KeyVault.get(context, Secret.OPENROUTER).isNotBlank()
-        return if (streamReady || fallbackReady) null else "Add a transcription key"
+        val streamReady = KeyVault.get(context, streamingKey).isNotBlank()
+        return if (streamReady || oneShotReady) null else "Add a transcription key"
     }
 
     /**
