@@ -470,7 +470,7 @@ private fun HistoryRow(entry: DictationEntry, onOpen: () -> Unit) {
     ) {
         val body = when {
             inFlight || entry.status == EntryStatus.PENDING -> "Transcribing…"
-            entry.status == EntryStatus.FAILED -> "Couldn't transcribe: ${entry.error ?: "unknown error"}"
+            entry.status == EntryStatus.FAILED -> "Not transcribed · ${entry.error ?: "unknown error"}"
             else -> entry.text
         }
         Text(body, style = Type.body, color = if (waiting) Tokens.inkSoft else Tokens.ink, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(end = 10.dp))

@@ -2,10 +2,12 @@ package com.nodaysidle.reverseuno.service
 
 import android.Manifest
 import android.accessibilityservice.AccessibilityService
+import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Rect
 import android.os.Bundle
@@ -34,6 +36,7 @@ import com.nodaysidle.reverseuno.stt.DictationAudioRecorder
 import com.nodaysidle.reverseuno.stt.StreamingStt
 import com.nodaysidle.reverseuno.stt.SttResult
 import com.nodaysidle.reverseuno.stt.XaiStreamingClient
+import com.nodaysidle.reverseuno.stt.silentMicMessage
 import com.nodaysidle.reverseuno.ui.BubbleState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -64,6 +67,13 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
     private var lastEditableCursor: Int = 0
     private var lastEditablePackage: String = ""
     private var lastEditableCapturedAtMillis: Long = 0
+    private lateinit var guards: RecordingGuards
+    /** Screen off mid-recording: stop and keep the audio for a retry instead of typing into a locked phone. */
+    private val screenOffReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == Intent.ACTION_SCREEN_OFF && isRecording) saveForLater("Screen turned off")
+        }
+    }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -72,6 +82,13 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
         Store.init(this)
         recorder = DictationAudioRecorder(this)
         pipeline = Pipeline(this)
+        guards = RecordingGuards(this) { change ->
+            if (isRecording) {
+                Log.i(TAG, "Audio focus lost ($change); ending the recording")
+                finishRecording()
+            }
+        }
+        ContextCompat.registerReceiver(this, screenOffReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF), ContextCompat.RECEIVER_NOT_EXPORTED)
         // A dictation that was mid-transcription when the process died becomes retryable, and
         // recordings nothing points at (crash during recording) are removed.
         Store.recoverInterrupted()
@@ -132,7 +149,10 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
     }
 
     override fun onDestroy() {
-        cancelRecording()
+        // The system can recreate this service at any time; what was said so far is kept.
+        if (isRecording) saveForLater("Interrupted")
+        runCatching { unregisterReceiver(screenOffReceiver) }
+        if (::guards.isInitialized) guards.releaseAll()
         if (activeService === this) activeService = null
         if (BubbleRuntime.controller === this) BubbleRuntime.controller = null
         BubbleRuntime.applyContext(false)
@@ -170,7 +190,12 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
                 active.interim.collect { text -> overlay?.pushInterim(text) }
             }
         }
-        runCatching { recorder.start { chunk -> stream?.send(chunk) } }.onFailure {
+        runCatching {
+            recorder.start(
+                onChunk = { chunk -> stream?.send(chunk) },
+                onSilentMic = { silenced -> scope.launch { onSilentMic(silenced) } },
+            )
+        }.onFailure {
             Log.e(TAG, "Recorder start failed", it)
             stream?.cancel()
             interimJob?.cancel()
@@ -182,6 +207,7 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
         // A new dictation supersedes the retry offer; the failed one stays in History.
         retryableEntryId = null
         isRecording = true
+        guards.beginRecording(MAX_UTTERANCE_MS)
         recordingStartedAt = System.currentTimeMillis()
         overlay?.setState(BubbleState.RECORDING)
         overlay?.haptic()
@@ -207,7 +233,36 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
         streaming = null
         recorder.cancel()
         isRecording = false
+        guards.releaseAll()
         overlay?.setState(BubbleState.IDLE)
+    }
+
+    /** One second of exact zeros: the mic is muted or taken. Nothing useful was captured. */
+    private fun onSilentMic(silencedByOtherApp: Boolean) {
+        if (!isRecording) return
+        cancelRecording()
+        showFeedback(BubbleState.ERROR, silentMicMessage(silencedByOtherApp), MIC_ERROR_HOLD_MS)
+    }
+
+    /** Stops recording and keeps the audio as a failed entry to retry later, without transcribing or typing. */
+    private fun saveForLater(reason: String) {
+        if (!isRecording) return
+        Log.i(TAG, "Recording stopped ($reason); saving it for a retry")
+        amplitudeJob?.cancel()
+        interimJob?.cancel()
+        interimJob = null
+        streaming?.cancel()
+        streaming = null
+        isRecording = false
+        val audio = recorder.stop()
+        guards.releaseAll()
+        if (audio == null) {
+            overlay?.setState(BubbleState.IDLE)
+            return
+        }
+        val startedAt = recordingStartedAt
+        val entry = pipeline.savePending(audio, Target(lastEditablePackage, appLabel(lastEditablePackage)), startedAt, System.currentTimeMillis() - startedAt)
+        showRetryable(entry.id, reason)
     }
 
     private fun finishRecording() {
@@ -221,9 +276,11 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
         interimJob = null
         val audio = recorder.stop() ?: run {
             stream?.cancel()
+            guards.releaseAll()
             overlay?.setState(BubbleState.IDLE)
             return
         }
+        guards.endRecording()
         overlay?.setState(BubbleState.PROCESSING)
         val startedAt = recordingStartedAt
         val durationMs = System.currentTimeMillis() - startedAt
@@ -270,6 +327,7 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
                 else -> insert(transcript, entry.id, startedAt)
             }
         }
+        processingJob?.invokeOnCompletion { guards.releaseAll() }
     }
 
     /** Keeps the entry and its audio; the pill keeps saying so until a retry, a new dictation, or History resolves it. */
@@ -482,6 +540,8 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
         private const val FOCUS_RETRY_COUNT = 6
         private const val FOCUS_RETRY_DELAY_MS = 120L
         private const val ERROR_HOLD_MS = 1800L
+        /** Long enough to read why the mic gave nothing. */
+        private const val MIC_ERROR_HOLD_MS = 3500L
         private const val SETUP_HINT_HOLD_MS = 3500L
         private const val AMPLITUDE_POLL_MS = 50L
         private const val MAX_UTTERANCE_MS = 300_000L
