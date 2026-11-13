@@ -23,6 +23,7 @@ import com.nodaysidle.reverseuno.core.preferredSpellings
 import com.nodaysidle.reverseuno.dictation.Pipeline
 import com.nodaysidle.reverseuno.dictation.Target
 import com.nodaysidle.reverseuno.dictation.Transcript
+import com.nodaysidle.reverseuno.dictation.failureReason
 import com.nodaysidle.reverseuno.security.KeyVault
 import com.nodaysidle.reverseuno.security.Secret
 import com.nodaysidle.reverseuno.stt.DeepgramStreamingClient
@@ -35,13 +36,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 class VoiceAccessibilityService : AccessibilityService(), BubbleController {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -62,6 +61,8 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
     private var lastEditableCursor: Int = 0
     private var lastEditablePackage: String = ""
     private var lastEditableCapturedAtMillis: Long = 0
+    /** The failed dictation a tap on the error pill retries. */
+    private var retryableEntryId: String? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -70,6 +71,10 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
         Store.init(this)
         recorder = DictationAudioRecorder(this)
         pipeline = Pipeline(this)
+        // A dictation that was mid-transcription when the process died becomes retryable, and
+        // recordings nothing points at (crash during recording) are removed.
+        Store.recoverInterrupted()
+        Store.sweepRecordings(DictationAudioRecorder.recordingsDir(this))
         BubbleRuntime.start(this)
         onAccessibilityEvent(null)
     }
@@ -138,6 +143,7 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
             overlay?.state == BubbleState.SETUP -> openSettings()
             isRecording -> finishRecording()
             processingJob?.isActive == true -> Unit
+            overlay?.state == BubbleState.ERROR && retryableEntryId != null -> retryFailed()
             else -> startRecording()
         }
     }
@@ -215,14 +221,25 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
             return
         }
         overlay?.setState(BubbleState.PROCESSING)
-        val durationMs = System.currentTimeMillis() - recordingStartedAt
+        val startedAt = recordingStartedAt
+        val durationMs = System.currentTimeMillis() - startedAt
         val target = Target(lastEditablePackage, appLabel(lastEditablePackage))
+        // Saved before anything can fail: the audio stays on disk until the transcript is in.
+        val entry = pipeline.savePending(audio, target, startedAt, durationMs)
+        retryableEntryId = null
         processingJob = scope.launch {
             val stopStarted = System.currentTimeMillis()
             val streamed: SttResult? = stream?.let { active ->
-                runCatching { active.finish() }
+                val result = runCatching { active.finish() }
                     .onFailure { Log.w(TAG, "Streaming transcription failed, falling back: ${it.message}") }
                     .getOrNull()
+                // Frames were dropped while the socket caught up: the saved WAV is the complete take.
+                if (result != null && active.droppedAudio && pipeline.hasOneShot()) {
+                    Log.w(TAG, "Stream dropped audio; transcribing the saved recording instead")
+                    null
+                } else {
+                    result
+                }
             }
             val streamedMs = if (streamed != null) System.currentTimeMillis() - stopStarted else 0L
             val transcript = try {
@@ -238,25 +255,61 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Transcription failed", e)
-                showFeedback(BubbleState.ERROR, "Couldn't transcribe", ERROR_HOLD_MS)
+                failTranscription(entry.id, e)
                 return@launch
-            } finally {
-                withContext(NonCancellable + Dispatchers.IO) { audio.delete() }
             }
             when (transcript) {
-                null -> showFeedback(BubbleState.ERROR, "No speech heard", ERROR_HOLD_MS)
-                else -> insert(transcript, target, durationMs)
+                null -> {
+                    pipeline.discard(entry.id)
+                    showFeedback(BubbleState.ERROR, "No speech heard", ERROR_HOLD_MS)
+                }
+                else -> insert(transcript, entry.id, startedAt)
             }
         }
     }
 
-    private suspend fun insert(transcript: Transcript, target: Target, durationMs: Long) {
+    /** Keeps the entry and its audio, and lets a tap on the pill retry it. */
+    private fun failTranscription(entryId: String, e: Throwable) {
+        val reason = failureReason(e)
+        pipeline.fail(entryId, reason)
+        retryableEntryId = entryId
+        showFeedback(BubbleState.ERROR, "$reason · tap to retry", RETRY_HOLD_MS)
+    }
+
+    /** Re-transcribes the last failed dictation from its saved audio and inserts it into the field in focus now. */
+    private fun retryFailed() {
+        val entryId = retryableEntryId ?: return
+        retryableEntryId = null
+        val entry = Store.data.value.history.find { it.id == entryId } ?: return
+        feedbackJob?.cancel()
+        cacheCurrentFocusedEditable()
+        overlay?.setState(BubbleState.PROCESSING)
+        processingJob = scope.launch {
+            val transcript = try {
+                pipeline.retranscribe(entry)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Retry failed", e)
+                failTranscription(entryId, e)
+                return@launch
+            }
+            if (transcript == null) {
+                pipeline.discard(entryId)
+                showFeedback(BubbleState.ERROR, "No speech heard", ERROR_HOLD_MS)
+            } else {
+                insert(transcript, entryId, entry.createdAt)
+            }
+        }
+    }
+
+    private suspend fun insert(transcript: Transcript, entryId: String, startedAt: Long) {
         val text = pipeline.forInsertion(transcript.text)
         val (setTextOk, pasteOk) = injectText(text)
         val feedback = InsertionFeedback.from(setTextOk, pasteOk)
         val inserted = setTextOk || pasteOk
-        pipeline.save(
-            transcript, target, recordingStartedAt, durationMs,
+        pipeline.complete(
+            entryId, transcript, startedAt,
             inserted = inserted,
             error = if (inserted) null else "clipboard",
         )
@@ -413,6 +466,8 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
         private const val FOCUS_RETRY_COUNT = 6
         private const val FOCUS_RETRY_DELAY_MS = 120L
         private const val ERROR_HOLD_MS = 1800L
+        /** Long enough to read the reason and tap to retry. */
+        private const val RETRY_HOLD_MS = 6000L
         private const val SETUP_HINT_HOLD_MS = 3500L
         private const val AMPLITUDE_POLL_MS = 50L
         private const val MAX_UTTERANCE_MS = 300_000L

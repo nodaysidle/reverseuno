@@ -18,4 +18,10 @@ class MigrateTest {
         assertEquals(30, migrate(store(1, 30)).settings.stt.keytermLimit)
         assertEquals(50, migrate(store(STORE_VERSION, 50)).settings.stt.keytermLimit)
     }
+
+    @Test fun aV2StoreKeepsItsDeliberateFiftyWhenMovingToV3() {
+        val migrated = migrate(store(2, 50))
+        assertEquals(50, migrated.settings.stt.keytermLimit)
+        assertEquals(STORE_VERSION, migrated.version)
+    }
 }

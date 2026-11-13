@@ -35,7 +35,8 @@ class DictationAudioRecorder(private val context: Context) {
     /** Starts a new recording; the returned file is a WAV that becomes valid once [stop] finalizes it. */
     fun start(onChunk: ((ByteArray) -> Unit)? = null): File {
         stopInternal(discard = true)
-        val file = File(context.cacheDir, "dictation_${System.currentTimeMillis()}.wav")
+        // filesDir, not cacheDir: the system may clear the cache while a failed dictation waits for a retry.
+        val file = File(recordingsDir(context), "dictation_${System.currentTimeMillis()}.wav")
         val out = FileOutputStream(file)
         out.write(wavHeader(0))
 
@@ -149,10 +150,13 @@ class DictationAudioRecorder(private val context: Context) {
         peak = 0
     }
 
-    private companion object {
-        const val TAG = "DictationAudioRecorder"
+    companion object {
+        private const val TAG = "DictationAudioRecorder"
 
-        fun peakOf(bytes: ByteArray, length: Int): Int {
+        /** Where recordings live until their transcription succeeds. */
+        fun recordingsDir(context: Context): File = File(context.filesDir, "recordings").apply { mkdirs() }
+
+        private fun peakOf(bytes: ByteArray, length: Int): Int {
             var peak = 0
             var i = 0
             while (i + 1 < length) {

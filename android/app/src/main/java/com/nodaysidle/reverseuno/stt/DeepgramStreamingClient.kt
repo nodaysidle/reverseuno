@@ -71,7 +71,6 @@ internal fun deepgramRequestUrl(model: String, language: String, keyterms: List<
 }
 
 private const val MAX_KEYTERMS = 50
-private const val MAX_QUEUED_CHUNKS = 20
 private const val FINISH_TIMEOUT_MS = 8_000L
 private const val CLOSE_STREAM = """{"type":"CloseStream"}"""
 
@@ -89,6 +88,8 @@ class DeepgramStreamingClient(
 ) : StreamingStt {
     private val _interim = MutableStateFlow("")
     override val interim: StateFlow<String> = _interim
+    @Volatile override var droppedAudio = false
+        private set
 
     private val lock = Any()
     private val queued = ArrayDeque<ByteArray>()
@@ -114,7 +115,10 @@ class DeepgramStreamingClient(
         val ws = socket ?: return
         if (ws.send(pcm.toByteString())) return
         synchronized(lock) {
-            if (queued.size >= MAX_QUEUED_CHUNKS) queued.removeFirst()
+            if (queued.size >= MAX_PENDING_FRAMES) {
+                queued.removeFirst()
+                droppedAudio = true
+            }
             queued.addLast(pcm)
         }
     }

@@ -73,23 +73,25 @@ object HubDictation {
         val durationMs = System.currentTimeMillis() - startedAt
         if (audio == null) return show(HubPhase.ERROR, "No speech detected")
         _state.value = HubState(HubPhase.WORKING, "Transcribing")
+        val pipeline = Pipeline(context)
+        // Saved first: on failure the entry and its audio stay in history for a retry.
+        val entry = pipeline.savePending(audio, Target(), startedAt, durationMs)
         scope.launch {
-            val pipeline = Pipeline(context)
             try {
                 val transcript = pipeline.process(audio, Target())
                 if (transcript == null) {
+                    pipeline.discard(entry.id)
                     show(HubPhase.ERROR, "No speech detected")
                 } else {
-                    pipeline.save(transcript, Target(), startedAt, durationMs, inserted = false)
+                    pipeline.complete(entry.id, transcript, startedAt, inserted = false)
                     show(HubPhase.DONE, "Saved to history")
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "dictation failed", e)
-                show(HubPhase.ERROR, "Transcription failed")
-            } finally {
-                audio.delete()
+                pipeline.fail(entry.id, failureReason(e))
+                show(HubPhase.ERROR, "Transcription failed · retry it from history")
             }
         }
     }

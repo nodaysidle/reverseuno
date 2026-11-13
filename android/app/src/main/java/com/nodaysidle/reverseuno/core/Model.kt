@@ -80,6 +80,16 @@ data class Settings(
 )
 
 @Serializable
+enum class EntryStatus {
+    /** Transcribed; text is final (it may still have failed to insert, see [DictationEntry.inserted]). */
+    @SerialName("done") DONE,
+    /** Recorded and saved; transcription has not finished yet. */
+    @SerialName("pending") PENDING,
+    /** Transcription failed; the audio is kept at [DictationEntry.audioPath] so it can be retried. */
+    @SerialName("failed") FAILED,
+}
+
+@Serializable
 data class DictationEntry(
     val id: String,
     val text: String,
@@ -104,6 +114,12 @@ data class DictationEntry(
     val editedText: String? = null,
     val editDistance: Int? = null,
     val flagged: Boolean = false,
+    /** Entries written before v3 had no status and were always finished. */
+    val status: EntryStatus = EntryStatus.DONE,
+    /** The recording on disk while the entry is pending or failed; null once transcribed. */
+    val audioPath: String? = null,
+    /** Transcription attempts that failed. */
+    val attempts: Int = 0,
 )
 
 @Serializable
@@ -134,8 +150,8 @@ data class Suggestion(
     val source: String = "edit",
 )
 
-/** v2 sends 15 keyterms instead of 50; see [migrate]. */
-const val STORE_VERSION = 2
+/** v2 sends 15 keyterms instead of 50; v3 adds history status and kept audio (defaults cover old entries). See [migrate]. */
+const val STORE_VERSION = 3
 
 /**
  * Moves an older store off defaults that changed. Past ~15 keyterms, sound-alike developer
@@ -143,7 +159,9 @@ const val STORE_VERSION = 2
  */
 fun migrate(data: StoreData): StoreData {
     if (data.version >= STORE_VERSION) return data
-    val stt = if (data.settings.stt.keytermLimit == 50) data.settings.stt.copy(keytermLimit = SttSettings().keytermLimit) else data.settings.stt
+    // v1 -> v2 only: a v2 store with 50 keyterms chose it deliberately.
+    val stt = if (data.version < 2 && data.settings.stt.keytermLimit == 50) data.settings.stt.copy(keytermLimit = SttSettings().keytermLimit) else data.settings.stt
+    // v2 -> v3 needs no rewrite: status, audioPath and attempts default to a finished entry.
     return data.copy(version = STORE_VERSION, settings = data.settings.copy(stt = stt))
 }
 

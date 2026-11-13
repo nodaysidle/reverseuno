@@ -61,9 +61,11 @@ import com.composables.icons.lucide.Circle
 import com.composables.icons.lucide.Clock3
 import com.composables.icons.lucide.Copy
 import com.composables.icons.lucide.Gauge
+import com.composables.icons.lucide.LoaderCircle
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Mic
 import com.composables.icons.lucide.Pencil
+import com.composables.icons.lucide.RotateCcw
 import com.composables.icons.lucide.Search
 import com.composables.icons.lucide.Star
 import com.composables.icons.lucide.Trash2
@@ -71,6 +73,7 @@ import com.composables.icons.lucide.Type
 import com.composables.icons.lucide.Wand
 import com.composables.icons.lucide.X
 import com.nodaysidle.reverseuno.core.DictationEntry
+import com.nodaysidle.reverseuno.core.EntryStatus
 import com.nodaysidle.reverseuno.core.Stats
 import com.nodaysidle.reverseuno.core.Store
 import com.nodaysidle.reverseuno.core.StoreData
@@ -82,6 +85,7 @@ import com.nodaysidle.reverseuno.core.statsFromHistory
 import com.nodaysidle.reverseuno.core.timeSavedMinutes
 import com.nodaysidle.reverseuno.core.truncate
 import com.nodaysidle.reverseuno.core.wordsPerMinute
+import com.nodaysidle.reverseuno.dictation.HistoryRetry
 import com.nodaysidle.reverseuno.dictation.HubDictation
 import com.nodaysidle.reverseuno.dictation.HubPhase
 import com.nodaysidle.reverseuno.security.KeyVault
@@ -128,7 +132,7 @@ private fun weeklySeries(history: List<DictationEntry>, days: List<LocalDate>): 
     val words = HashMap<LocalDate, Int>()
     val speaking = HashMap<LocalDate, Long>()
     for (entry in history) {
-        if (entry.error != null) continue
+        if (entry.error != null || entry.status != EntryStatus.DONE) continue
         val day = dayOf(entry.createdAt)
         words.merge(day, entry.wordCount, Int::plus)
         speaking.merge(day, entry.durationMs, Long::plus)
@@ -453,26 +457,46 @@ private fun SuggestionCard(s: Suggestion) {
 private fun HistoryRow(entry: DictationEntry, onOpen: () -> Unit) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
+    val retrying by HistoryRetry.running.collectAsState()
+    val inFlight = entry.id in retrying
+    val waiting = entry.status != EntryStatus.DONE
     Card(
         Modifier.fillMaxWidth(),
         flat = true,
-        background = if (entry.error != null) Tokens.redSoft.copy(alpha = 0.25f) else null,
+        background = if (entry.error != null || entry.status == EntryStatus.FAILED) Tokens.redSoft.copy(alpha = 0.25f) else null,
         padding = PaddingValues(start = 16.dp, top = 13.dp, end = 6.dp, bottom = 4.dp),
-        onClick = onOpen,
+        // A pending or failed entry has no text to edit yet.
+        onClick = if (waiting) ({}) else onOpen,
     ) {
-        Text(entry.text, style = Type.body, color = Tokens.ink, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(end = 10.dp))
+        val body = when {
+            inFlight || entry.status == EntryStatus.PENDING -> "Transcribing…"
+            entry.status == EntryStatus.FAILED -> "Couldn't transcribe: ${entry.error ?: "unknown error"}"
+            else -> entry.text
+        }
+        Text(body, style = Type.body, color = if (waiting) Tokens.inkSoft else Tokens.ink, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(end = 10.dp))
         Spacer(Modifier.height(6.dp))
         Text("${timeOf(entry.createdAt)} · ${appLabel(entry)} · ${duration(entry.durationMs)}", style = Type.hint, color = Tokens.muted)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Chip(entry.cleanup.label)
-                if (entry.editedText != null) Chip("edited", bg = Tokens.lavender.copy(alpha = 0.18f), fg = Tokens.ink)
-                if (entry.error != null) Chip("failed", bg = Tokens.redSoft, fg = Tokens.red)
-                else if (!entry.inserted) Chip("saved only")
+                when (entry.status) {
+                    EntryStatus.PENDING -> Chip("pending")
+                    EntryStatus.FAILED -> Chip(if (entry.attempts > 1) "failed ×${entry.attempts}" else "failed", bg = Tokens.redSoft, fg = Tokens.red)
+                    EntryStatus.DONE -> {
+                        Chip(entry.cleanup.label)
+                        if (entry.editedText != null) Chip("edited", bg = Tokens.lavender.copy(alpha = 0.18f), fg = Tokens.ink)
+                        if (entry.error != null) Chip("failed", bg = Tokens.redSoft, fg = Tokens.red)
+                        else if (!entry.inserted) Chip("saved only")
+                    }
+                }
             }
-            IconBtn(Lucide.Copy, "Copy", { clipboard.setText(AnnotatedString(entry.text)); toast(context, "Copied to clipboard") })
-            IconBtn(Lucide.Star, if (entry.flagged) "Unflag" else "Flag", { Store.updateHistory(entry.id) { it.copy(flagged = !it.flagged) } }, tint = if (entry.flagged) Tokens.accent else Tokens.inkSoft)
-            IconBtn(Lucide.Pencil, "Edit", onOpen)
+            if (waiting) {
+                if (inFlight) IconBtn(Lucide.LoaderCircle, "Retrying", {})
+                else if (entry.audioPath != null) IconBtn(Lucide.RotateCcw, "Retry", { HistoryRetry.retry(context, entry.id) { toast(context, it) } }, tint = Tokens.accent)
+            } else {
+                IconBtn(Lucide.Copy, "Copy", { clipboard.setText(AnnotatedString(entry.text)); toast(context, "Copied to clipboard") })
+                IconBtn(Lucide.Star, if (entry.flagged) "Unflag" else "Flag", { Store.updateHistory(entry.id) { it.copy(flagged = !it.flagged) } }, tint = if (entry.flagged) Tokens.accent else Tokens.inkSoft)
+                IconBtn(Lucide.Pencil, "Edit", onOpen)
+            }
             IconBtn(Lucide.Trash2, "Delete", { Store.deleteHistory(entry.id); toast(context, "Dictation deleted") }, tint = Tokens.red)
         }
     }

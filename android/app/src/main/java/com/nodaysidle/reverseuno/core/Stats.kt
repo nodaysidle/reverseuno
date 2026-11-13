@@ -29,7 +29,7 @@ fun statsFromHistory(history: List<DictationEntry>): Stats {
     val days = HashMap<LocalDate, Int>()
     val apps = HashMap<String, Int>()
     for (entry in history) {
-        if (entry.error != null) continue
+        if (entry.error != null || entry.status != EntryStatus.DONE) continue
         words += entry.wordCount
         count += 1
         speaking += entry.durationMs

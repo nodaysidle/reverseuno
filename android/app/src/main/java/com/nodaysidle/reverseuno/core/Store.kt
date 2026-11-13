@@ -43,13 +43,34 @@ object Store {
 
     fun updateSettings(transform: (Settings) -> Settings) = mutate { it.copy(settings = transform(it.settings)) }
 
-    fun addHistory(entry: DictationEntry) = mutate {
-        val max = maxOf(20, it.settings.history.maxEntries)
-        it.copy(history = (listOf(entry) + it.history).take(max))
+    fun addHistory(entry: DictationEntry) {
+        var dropped: List<DictationEntry> = emptyList()
+        mutate {
+            val (kept, gone) = withNewEntry(it.history, entry, maxOf(20, it.settings.history.maxEntries))
+            dropped = gone
+            it.copy(history = kept)
+        }
+        dropped.forEach(::deleteAudio)
     }
 
     fun updateHistory(id: String, transform: (DictationEntry) -> DictationEntry) = mutate { data ->
         data.copy(history = data.history.map { if (it.id == id) transform(it) else it })
+    }
+
+    /** Marks entries a dead process left pending as failed, so they show a retry instead of spinning forever. */
+    fun recoverInterrupted() {
+        if (state.value.history.none { it.status == EntryStatus.PENDING }) return
+        mutate { it.copy(history = interruptedToFailed(it.history)) }
+    }
+
+    /** Deletes recordings in [dir] that no entry points at. */
+    fun sweepRecordings(dir: File) {
+        val names = dir.list()?.toList() ?: return
+        orphanRecordings(names, state.value.history).forEach { File(dir, it).delete() }
+    }
+
+    private fun deleteAudio(entry: DictationEntry) {
+        entry.audioPath?.let { runCatching { File(it).delete() } }
     }
 
     /** An edited transcript; learns spelling corrections from the diff (or suggests them when auto-learn is off). */
@@ -80,9 +101,17 @@ object Store {
         )
     }
 
-    fun deleteHistory(id: String) = mutate { data -> data.copy(history = data.history.filter { it.id != id }) }
+    fun deleteHistory(id: String) {
+        val entry = state.value.history.find { it.id == id }
+        mutate { data -> data.copy(history = data.history.filter { it.id != id }) }
+        entry?.let(::deleteAudio)
+    }
 
-    fun clearHistory() = mutate { it.copy(history = emptyList(), suggestions = emptyList()) }
+    fun clearHistory() {
+        val all = state.value.history
+        mutate { it.copy(history = emptyList(), suggestions = emptyList()) }
+        all.forEach(::deleteAudio)
+    }
 
     fun addDictionary(word: String, correction: String? = null) = mutate { data ->
         data.copy(dictionary = withWord(data.dictionary, word, correction))

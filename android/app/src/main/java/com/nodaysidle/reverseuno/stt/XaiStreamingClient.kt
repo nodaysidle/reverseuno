@@ -78,6 +78,8 @@ class XaiStreamingClient(
 ) : StreamingStt {
     private val _interim = MutableStateFlow("")
     override val interim: StateFlow<String> = _interim
+    @Volatile override var droppedAudio = false
+        private set
 
     private val lock = Any()
     private val queued = ArrayDeque<ByteArray>()
@@ -104,7 +106,10 @@ class XaiStreamingClient(
         val ws = socket ?: return
         if (ready && ws.send(pcm.toByteString())) return
         synchronized(lock) {
-            if (queued.size >= MAX_QUEUED_CHUNKS) queued.removeFirst()
+            if (queued.size >= MAX_PENDING_FRAMES) {
+                queued.removeFirst()
+                droppedAudio = true
+            }
             queued.addLast(pcm)
         }
     }
@@ -176,7 +181,6 @@ class XaiStreamingClient(
     }
 
     companion object {
-        private const val MAX_QUEUED_CHUNKS = 20
         private const val FINISH_TIMEOUT_MS = 8_000L
 
         val HTTP: OkHttpClient = OkHttpClient.Builder()
