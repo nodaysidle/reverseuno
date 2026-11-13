@@ -57,6 +57,8 @@ class FloatingMicOverlay(
 
     var state by mutableStateOf(BubbleState.IDLE)
         private set
+    /** See [setState]. */
+    private var sticky = false
     var expanded by mutableStateOf(false)
         private set
     /** Set after a dictation: the pill rests as the dot until the user taps it again. */
@@ -228,10 +230,15 @@ class FloatingMicOverlay(
         applyExpanded(false)
     }
 
-    fun setState(newState: BubbleState, text: String = "") {
+    /**
+     * [stickyState] keeps a state up with no timer (a failed dictation waiting for a retry), but
+     * unlike other non-idle states it does not force the pill on screen outside text fields.
+     */
+    fun setState(newState: BubbleState, text: String = "", stickyState: Boolean = false) {
         val previous = state
         state = newState
         message = text
+        sticky = stickyState
         if (newState != BubbleState.RECORDING) levels.indices.forEach { levels[it] = 0f }
         updateContentDescription()
         applyVisibility()
@@ -259,7 +266,7 @@ class FloatingMicOverlay(
     }
 
     private fun applyVisibility() {
-        val want = visibleRequested || state != BubbleState.IDLE
+        val want = visibleRequested || (state != BubbleState.IDLE && !sticky)
         removeCallbacks(concealRunnable)
         when {
             !isAttached -> revealed = want
@@ -352,7 +359,8 @@ class FloatingMicOverlay(
                 dragStartScreenX = if (dockedRight) screenW - params.x - bubbleW else params.x
                 dragStartScreenY = params.y
 
-                if (state == BubbleState.IDLE && expanded) postDelayed(holdRunnable, HOLD_THRESHOLD_MS)
+                // A sticky retry message still lets you hold to start a new dictation; tap retries.
+                if ((state == BubbleState.IDLE && expanded) || sticky) postDelayed(holdRunnable, HOLD_THRESHOLD_MS)
             }
             MotionEvent.ACTION_MOVE -> {
                 val dx = event.rawX - initialTouchX

@@ -17,6 +17,8 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import androidx.core.content.ContextCompat
 import com.nodaysidle.reverseuno.MainActivity
+import com.nodaysidle.reverseuno.core.DictationEntry
+import com.nodaysidle.reverseuno.core.EntryStatus
 import com.nodaysidle.reverseuno.core.Settings
 import com.nodaysidle.reverseuno.core.Store
 import com.nodaysidle.reverseuno.core.preferredSpellings
@@ -62,8 +64,6 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
     private var lastEditableCursor: Int = 0
     private var lastEditablePackage: String = ""
     private var lastEditableCapturedAtMillis: Long = 0
-    /** The failed dictation a tap on the error pill retries. */
-    private var retryableEntryId: String? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -77,6 +77,7 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
         Store.recoverInterrupted()
         Store.sweepRecordings(DictationAudioRecorder.recordingsDir(this))
         BubbleRuntime.start(this)
+        scope.launch { Store.data.collect { clearRetryableIfResolved(it.history) } }
         onAccessibilityEvent(null)
     }
 
@@ -178,6 +179,8 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
             return
         }
         feedbackJob?.cancel()
+        // A new dictation supersedes the retry offer; the failed one stays in History.
+        retryableEntryId = null
         isRecording = true
         recordingStartedAt = System.currentTimeMillis()
         overlay?.setState(BubbleState.RECORDING)
@@ -269,12 +272,24 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
         }
     }
 
-    /** Keeps the entry and its audio, and lets a tap on the pill retry it. */
-    private fun failTranscription(entryId: String, e: Throwable) {
-        val reason = failureReason(e)
+    /** Keeps the entry and its audio; the pill keeps saying so until a retry, a new dictation, or History resolves it. */
+    private fun failTranscription(entryId: String, e: Throwable) = showRetryable(entryId, failureReason(e))
+
+    private fun showRetryable(entryId: String, reason: String) {
+        Log.d(TAG, "Dictation kept for retry: $reason")
         pipeline.fail(entryId, reason)
         retryableEntryId = entryId
-        showFeedback(BubbleState.ERROR, "$reason · tap to retry", RETRY_HOLD_MS)
+        feedbackJob?.cancel()
+        overlay?.setState(BubbleState.ERROR, "$reason · tap to retry", stickyState = true)
+    }
+
+    /** The pending failure was retried or deleted from History: the pill has nothing left to offer. */
+    private fun clearRetryableIfResolved(history: List<DictationEntry>) {
+        val id = retryableEntryId ?: return
+        if (history.any { it.id == id && it.status == EntryStatus.FAILED }) return
+        Log.d(TAG, "Retryable dictation resolved elsewhere; clearing the pill (state=${overlay?.state})")
+        retryableEntryId = null
+        if (overlay?.state == BubbleState.ERROR && processingJob?.isActive != true) overlay?.setState(BubbleState.IDLE)
     }
 
     /** Re-transcribes the last failed dictation from its saved audio and inserts it into the field in focus now. */
@@ -467,8 +482,6 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
         private const val FOCUS_RETRY_COUNT = 6
         private const val FOCUS_RETRY_DELAY_MS = 120L
         private const val ERROR_HOLD_MS = 1800L
-        /** Long enough to read the reason and tap to retry. */
-        private const val RETRY_HOLD_MS = 6000L
         private const val SETUP_HINT_HOLD_MS = 3500L
         private const val AMPLITUDE_POLL_MS = 50L
         private const val MAX_UTTERANCE_MS = 300_000L
@@ -479,6 +492,13 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
         private val IGNORED_EDITABLE_PACKAGES = emptySet<String>()
 
         @Volatile private var activeService: VoiceAccessibilityService? = null
+
+        /**
+         * The failed dictation a tap on the error pill retries. Process-wide like the pill itself
+         * ([BubbleRuntime]): the system can recreate this service at any time (MIUI does when the
+         * hub opens), and a per-instance id would leave a "tap to retry" pill that records instead.
+         */
+        @Volatile private var retryableEntryId: String? = null
 
         fun updateOverlayVisibility(context: Context, enabled: Boolean) {
             BubbleRuntime.setEnabled(context, enabled)
