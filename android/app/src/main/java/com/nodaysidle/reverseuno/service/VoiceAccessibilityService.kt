@@ -2,6 +2,7 @@ package com.nodaysidle.reverseuno.service
 
 import android.Manifest
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.InputMethod
 import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -10,6 +11,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Rect
+import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.text.InputType
@@ -17,6 +19,8 @@ import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
+import android.view.inputmethod.EditorInfo
+import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
 import com.nodaysidle.reverseuno.MainActivity
 import com.nodaysidle.reverseuno.core.DictationEntry
@@ -379,16 +383,16 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
 
     private suspend fun insert(transcript: Transcript, entryId: String, startedAt: Long) {
         val text = pipeline.forInsertion(transcript.text)
-        val (setTextOk, pasteOk) = injectText(text)
-        val feedback = InsertionFeedback.from(setTextOk, pasteOk)
-        val inserted = setTextOk || pasteOk
+        val method = injectText(text)
+        val feedback = InsertionFeedback.from(method)
+        val inserted = method != InsertMethod.NONE
         pipeline.complete(
             entryId, transcript, startedAt,
             inserted = inserted,
             error = if (inserted) null else "clipboard",
         )
-        Log.d(TAG, "Inserted length=${text.length} setText=$setTextOk paste=$pasteOk")
-        if (!setTextOk && !pasteOk) ClipboardNotification.show(this, text)
+        Log.d(TAG, "Inserted length=${text.length} method=$method")
+        if (!inserted) ClipboardNotification.show(this, text)
         showFeedback(feedback.state, "Copied, paste it", feedback.holdMillis)
     }
 
@@ -429,20 +433,30 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
         }.onFailure { Log.e(TAG, "Failed to open settings", it) }
     }
 
-    /** ACTION_SET_TEXT at the cursor first; only if that fails, clipboard + ACTION_PASTE. Returns (setText, paste). */
-    private suspend fun injectText(text: String): Pair<Boolean, Boolean> {
+    /**
+     * Android 13+: commitText through the accessibility input connection, typed like a keyboard.
+     * Then ACTION_SET_TEXT merged at the cursor, then clipboard + ACTION_PASTE, then the live
+     * focused node; the text is on the clipboard if all of them fail.
+     */
+    private suspend fun injectText(text: String): InsertMethod {
         val focused = waitForFocusedEditable()
             ?: lastEditableNode?.takeIf { isLastEditableFresh() }
             ?: run {
                 setClipboard(text)
                 Log.w(TAG, "No editable node available; text left on clipboard")
-                return false to false
+                return InsertMethod.NONE
             }
 
         // Refresh can fail while the target view re-renders; the node is still usable.
         runCatching { focused.refresh() }
 
-        val plan = TextInsertionMerger.merge(lastEditableText, lastEditableCursor, text)
+        if (Build.VERSION.SDK_INT >= 33 && tryCommitText(text, focused)) return InsertMethod.COMMIT
+
+        // The field as it is now, not as it was when recording started: it may have changed meanwhile.
+        val live = fieldSnapshot(focused)
+        val (fieldText, cursor) = live ?: (lastEditableText to lastEditableCursor)
+        val plan = TextInsertionMerger.merge(fieldText, cursor, text)
+        Log.d(TAG, "Merging at cursor=$cursor of ${fieldText.length} (${if (live != null) "live" else "cached"})")
         val args = Bundle().apply {
             putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, plan.mergedText)
         }
@@ -452,26 +466,80 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
                 putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, plan.cursorAfterInsert)
             }
             runCatching { focused.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selection) }
-            return true to false
+            return InsertMethod.SET_TEXT
         }
 
         setClipboard(text)
         if (runCatching { focused.performAction(AccessibilityNodeInfo.ACTION_PASTE) }.getOrDefault(false)) {
-            return false to true
+            return InsertMethod.PASTE
         }
 
         val liveFocused = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
         if (liveFocused != null && liveFocused != focused) {
             if (runCatching { liveFocused.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args) }.getOrDefault(false)) {
-                return true to false
+                return InsertMethod.SET_TEXT
             }
             if (runCatching { liveFocused.performAction(AccessibilityNodeInfo.ACTION_PASTE) }.getOrDefault(false)) {
-                return false to true
+                return InsertMethod.PASTE
             }
         }
 
         Log.w(TAG, "Insert failed on node; text remains in clipboard")
-        return false to false
+        return InsertMethod.NONE
+    }
+
+    /** True when the text is in the field; false sends it down the ACTION_SET_TEXT chain untouched. */
+    @RequiresApi(33)
+    private fun tryCommitText(text: String, focused: AccessibilityNodeInfo): Boolean {
+        val ime = inputMethod as? DictationInputMethod ?: return false
+        val editor = ime.currentInputEditorInfo
+        val targetPackage = focused.packageName?.toString().orEmpty()
+        if (focused.isPassword || !shouldCommitText(
+                Build.VERSION.SDK_INT,
+                ime.currentInputStarted,
+                editor?.packageName,
+                targetPackage,
+                editor?.inputType ?: 0,
+                SystemClock.uptimeMillis() - ime.inputStartedAt,
+            )
+        ) return false
+        val connection = ime.currentInputConnection ?: return false
+        return runCatching {
+            val around = connection.getSurroundingText(SURROUNDING_CHARS, SURROUNDING_CHARS, 0)
+            val beforeCursor = around?.let { it.text.subSequence(0, it.selectionStart.coerceIn(0, it.text.length)) }
+            val afterCursor = around?.let { it.text.subSequence(it.selectionEnd.coerceIn(0, it.text.length), it.text.length) }
+            val spaced = spacedInsertion(beforeCursor?.toString().orEmpty(), afterCursor?.toString().orEmpty(), text)
+            connection.commitText(spaced.text, 1, null)
+            val after = connection.getSurroundingText(SURROUNDING_CHARS, 0, 0)
+            val landed = commitLanded(beforeCursor, after?.text?.subSequence(0, after.selectionStart.coerceIn(0, after.text.length)), spaced.text)
+            Log.d(TAG, "commitText into ${editor?.packageName}: landed=$landed")
+            landed != false
+        }.onFailure { Log.w(TAG, "commitText failed; using ACTION_SET_TEXT", it) }.getOrDefault(false)
+    }
+
+    /** The field's text and cursor now, with a showing placeholder counted as empty; null when it reports no cursor. */
+    private fun fieldSnapshot(node: AccessibilityNodeInfo): Pair<String, Int>? {
+        val start = node.textSelectionStart
+        if (start < 0) return null
+        val raw = node.text?.toString().orEmpty()
+        val text = if (raw == node.hintText?.toString()) "" else raw
+        return text to start.coerceAtMost(text.length)
+    }
+
+    @RequiresApi(33)
+    override fun onCreateInputMethod(): InputMethod = DictationInputMethod(this)
+
+    /** The accessibility service's own input connection (FLAG_INPUT_METHOD_EDITOR, Android 13+). */
+    @RequiresApi(33)
+    private class DictationInputMethod(service: AccessibilityService) : InputMethod(service) {
+        /** When the current field's input (re)started; commitText waits [INPUT_RESTART_GUARD_MS] after it. */
+        @Volatile var inputStartedAt = 0L
+            private set
+
+        override fun onStartInput(attribute: EditorInfo, restarting: Boolean) {
+            super.onStartInput(attribute, restarting)
+            inputStartedAt = SystemClock.uptimeMillis()
+        }
     }
 
     private fun setClipboard(text: String) {
