@@ -85,7 +85,7 @@ class DeepgramStreamingClient(
     private val language: String,
     private val keyterms: List<String>,
     private val model: String = "nova-3",
-    private val client: OkHttpClient = HTTP,
+    connect: (Request, WebSocketListener) -> WebSocket = { request, listener -> HTTP.newWebSocket(request, listener) },
 ) : StreamingStt {
     private val _interim = MutableStateFlow("")
     override val interim: StateFlow<String> = _interim
@@ -99,6 +99,7 @@ class DeepgramStreamingClient(
     private var detectedLanguage: String? = null
     @Volatile private var failure: String? = null
     @Volatile private var socket: WebSocket? = null
+    @Volatile private var finishing = false
     private val closed = CompletableDeferred<Unit>()
 
     init {
@@ -107,7 +108,7 @@ class DeepgramStreamingClient(
             .url(deepgramRequestUrl(model, language, keyterms))
             .header("Authorization", "Token $apiKey")
             .build()
-        socket = client.newWebSocket(request, Listener())
+        socket = connect(request, Listener())
     }
 
     /** Queue a PCM frame; frames recorded before the socket opens are flushed on open. */
@@ -115,6 +116,8 @@ class DeepgramStreamingClient(
         if (pcm.isEmpty()) return
         val ws = socket ?: return
         if (ws.send(pcm.toByteString())) return
+        // The socket failed or is closing: this frame will not reach the server.
+        droppedAudio = true
         synchronized(lock) {
             if (queued.size >= MAX_PENDING_FRAMES) {
                 queued.removeFirst()
@@ -128,8 +131,10 @@ class DeepgramStreamingClient(
     override suspend fun finish(): SttResult? {
         val ws = socket
         if (ws == null) return null
+        finishing = true
         runCatching { ws.send(CLOSE_STREAM) }
-        withTimeoutOrNull(FINISH_TIMEOUT_MS) { closed.await() }
+        // No close from the server in time: the last results may be missing.
+        if (withTimeoutOrNull(FINISH_TIMEOUT_MS) { closed.await() } == null) droppedAudio = true
         runCatching { ws.close(1000, "done") }
         failure?.let { reason ->
             if (finals.isBlank()) {
@@ -174,6 +179,7 @@ class DeepgramStreamingClient(
                 DeepgramEvent.Ignored -> Unit
                 DeepgramEvent.Closed -> closed.complete(Unit)
                 is DeepgramEvent.Error -> {
+                    droppedAudio = true
                     failure = event.message
                     closed.complete(Unit)
                 }
@@ -181,15 +187,18 @@ class DeepgramStreamingClient(
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+            droppedAudio = true
             failure = t.message ?: "socket failure"
             closed.complete(Unit)
         }
 
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+            if (!finishing) droppedAudio = true
             webSocket.close(1000, null)
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+            if (!finishing) droppedAudio = true
             closed.complete(Unit)
         }
     }

@@ -8,8 +8,9 @@ interface StreamingStt {
     val interim: StateFlow<String>
 
     /**
-     * True when frames had to be dropped because the socket never caught up. The streamed text
-     * then misses audio, so the caller should transcribe the saved WAV instead.
+     * True when the stream missed audio: frames were dropped, the socket failed or closed
+     * early, or the final result never arrived. The streamed text is then incomplete, so the
+     * caller should transcribe the saved WAV instead.
      */
     val droppedAudio: Boolean
 

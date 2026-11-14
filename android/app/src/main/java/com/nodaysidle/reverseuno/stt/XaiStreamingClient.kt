@@ -74,7 +74,7 @@ class XaiStreamingClient(
     private val language: String,
     private val keyterms: List<String>,
     private val model: String = "grok-voice-transcribe-2.0",
-    private val client: OkHttpClient = HTTP,
+    connect: (Request, WebSocketListener) -> WebSocket = { request, listener -> HTTP.newWebSocket(request, listener) },
 ) : StreamingStt {
     private val _interim = MutableStateFlow("")
     override val interim: StateFlow<String> = _interim
@@ -91,6 +91,7 @@ class XaiStreamingClient(
     private var lastPartial = ""
     private var detectedLanguage: String? = null
     @Volatile private var socket: WebSocket? = null
+    @Volatile private var finishing = false
 
     init {
         require(apiKey.isNotBlank()) { "xAI API key is missing" }
@@ -98,13 +99,17 @@ class XaiStreamingClient(
             .url(xaiRequestUrl(model, language, keyterms))
             .header("Authorization", "Bearer $apiKey")
             .build()
-        socket = client.newWebSocket(request, Listener())
+        socket = connect(request, Listener())
     }
 
     override fun send(pcm: ByteArray) {
         if (pcm.isEmpty()) return
         val ws = socket ?: return
-        if (ready && ws.send(pcm.toByteString())) return
+        if (ready) {
+            if (ws.send(pcm.toByteString())) return
+            // The socket failed or is closing: this frame will not reach the server.
+            droppedAudio = true
+        }
         synchronized(lock) {
             if (queued.size >= MAX_PENDING_FRAMES) {
                 queued.removeFirst()
@@ -116,9 +121,11 @@ class XaiStreamingClient(
 
     override suspend fun finish(): SttResult? {
         val ws = socket ?: return null
+        finishing = true
         runCatching { ws.send("""{"type":"finalize"}""") }
         runCatching { ws.send("""{"type":"audio.done"}""") }
-        withTimeoutOrNull(FINISH_TIMEOUT_MS) { closed.await() }
+        // No close from the server in time: the last results may be missing.
+        if (withTimeoutOrNull(FINISH_TIMEOUT_MS) { closed.await() } == null) droppedAudio = true
         runCatching { ws.close(1000, "done") }
         failure?.let { reason ->
             if (doneText.isNullOrBlank()) {
@@ -126,6 +133,8 @@ class XaiStreamingClient(
                 error("xAI: $reason")
             }
         }
+        // Without transcript.done only the last segment is known.
+        if (doneText == null) droppedAudio = true
         val text = (doneText ?: lastPartial).trim()
         if (text.isBlank()) return null
         return SttResult(text, detectedLanguage ?: language)
@@ -159,6 +168,7 @@ class XaiStreamingClient(
                     closed.complete(Unit)
                 }
                 is XaiEvent.Error -> {
+                    droppedAudio = true
                     failure = event.message
                     closed.complete(Unit)
                 }
@@ -167,15 +177,18 @@ class XaiStreamingClient(
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+            droppedAudio = true
             failure = t.message ?: "socket failure"
             closed.complete(Unit)
         }
 
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+            if (!finishing) droppedAudio = true
             webSocket.close(1000, null)
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+            if (!finishing) droppedAudio = true
             closed.complete(Unit)
         }
     }
