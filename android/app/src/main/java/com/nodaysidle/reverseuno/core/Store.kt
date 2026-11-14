@@ -113,6 +113,16 @@ object Store {
         all.forEach(::deleteAudio)
     }
 
+    /** Applies "Keep dictations for": removes finished dictations past the age limit. Returns how many went. */
+    fun pruneExpired(now: Long = System.currentTimeMillis()): Int {
+        val expired = expiredEntries(state.value.history, now, keepMillis(settings.history.keepDays))
+        if (expired.isEmpty()) return 0
+        val ids = expired.map { it.id }.toSet()
+        mutate { data -> data.copy(history = data.history.filter { it.id !in ids }) }
+        expired.forEach(::deleteAudio)
+        return expired.size
+    }
+
     fun addDictionary(word: String, correction: String? = null) = mutate { data ->
         data.copy(dictionary = withWord(data.dictionary, word, correction))
     }

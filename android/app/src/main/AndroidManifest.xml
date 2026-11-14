@@ -13,6 +13,11 @@
     <queries>
         <package android:name="com.miui.securitycenter" />
         <package android:name="com.miui.powerkeeper" />
+        <!-- Launchable apps, so History can name the app a dictation went into (package visibility, API 30+). -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
     </queries>
 
     <application

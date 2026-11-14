@@ -117,6 +117,7 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
         // A dictation that was mid-transcription when the process died becomes retryable, and
         // recordings nothing points at (crash during recording) are removed.
         Store.recoverInterrupted()
+        Store.pruneExpired()
         Store.sweepRecordings(DictationAudioRecorder.recordingsDir(this))
         BubbleRuntime.hostInAccessibility(this)
         scope.launch { Store.data.collect { clearRetryableIfResolved(it.history) } }

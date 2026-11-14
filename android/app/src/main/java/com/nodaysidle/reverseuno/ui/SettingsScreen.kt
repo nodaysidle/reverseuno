@@ -32,6 +32,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import com.nodaysidle.reverseuno.core.KEEP_DAYS_OPTIONS
 import com.nodaysidle.reverseuno.core.LANGUAGE_OPTIONS
 import com.nodaysidle.reverseuno.core.PROVIDER_OPENROUTER
 import com.nodaysidle.reverseuno.core.Store
@@ -262,7 +263,18 @@ fun SettingsScreen(data: StoreData) {
 
         item {
             Section("History", "Stored on this phone only.") {
-                SettingRow("Keep last", "Older dictations are dropped past this count.", divider = false) {
+                SettingRow("Keep dictations for", "Older ones are removed. A dictation that still needs a retry is always kept.", divider = false) {
+                    Select(
+                        settings.history.keepDays,
+                        KEEP_DAYS_OPTIONS.let { l -> if (l.any { it.first == settings.history.keepDays }) l else l + (settings.history.keepDays to "${settings.history.keepDays} days") },
+                        { v ->
+                            Store.updateSettings { it.copy(history = it.history.copy(keepDays = v)) }
+                            val removed = Store.pruneExpired()
+                            if (removed > 0) toast(context, "Removed $removed older ${if (removed == 1) "dictation" else "dictations"}")
+                        },
+                    )
+                }
+                SettingRow("Keep last", "Older dictations are dropped past this count.") {
                     Select(
                         settings.history.maxEntries,
                         listOf(100, 250, 500, 1000, 2500).let { l ->

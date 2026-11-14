@@ -74,7 +74,12 @@ data class InsertSettings(val appendSpace: Boolean = true)
 data class BubbleSettings(val enabled: Boolean = true)
 
 @Serializable
-data class HistorySettings(val maxEntries: Int = 500, val autoLearn: Boolean = true)
+data class HistorySettings(
+    val maxEntries: Int = 500,
+    val autoLearn: Boolean = true,
+    /** Finished dictations older than this many days are removed; 0 keeps them forever. */
+    val keepDays: Int = 0,
+)
 
 @Serializable
 data class AppearanceSettings(

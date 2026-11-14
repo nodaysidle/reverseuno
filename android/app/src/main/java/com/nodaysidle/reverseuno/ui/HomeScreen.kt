@@ -74,12 +74,14 @@ import com.composables.icons.lucide.Wand
 import com.composables.icons.lucide.X
 import com.nodaysidle.reverseuno.core.DictationEntry
 import com.nodaysidle.reverseuno.core.EntryStatus
+import com.nodaysidle.reverseuno.core.HistoryFilter
 import com.nodaysidle.reverseuno.core.Stats
 import com.nodaysidle.reverseuno.core.Store
 import com.nodaysidle.reverseuno.core.StoreData
 import com.nodaysidle.reverseuno.core.Suggestion
 import com.nodaysidle.reverseuno.core.currentStreak
 import com.nodaysidle.reverseuno.core.dayOf
+import com.nodaysidle.reverseuno.core.filterHistory
 import com.nodaysidle.reverseuno.core.lastNDays
 import com.nodaysidle.reverseuno.core.statsFromHistory
 import com.nodaysidle.reverseuno.core.timeSavedMinutes
@@ -120,8 +122,9 @@ private fun duration(ms: Long): String {
     return if (rest == 0L) "${seconds / 60}m" else "${seconds / 60}m ${rest}s"
 }
 
-/** The user-facing label of the app the text went into; dictations made inside the hub have none. */
-private fun appLabel(entry: DictationEntry) = truncate(entry.appTitle.ifEmpty { entry.appClass }.ifEmpty { "reverseuno" }, 22)
+/** The user-facing name of the app the text went into, resolved now for entries saved without one; hub dictations have none. */
+private fun appLabel(context: android.content.Context, entry: DictationEntry) =
+    truncate(entry.appTitle.ifEmpty { AppNames.of(context, entry.appClass) }.ifEmpty { "reverseuno" }, 22)
 
 private fun toast(context: android.content.Context, message: String) = Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
 
@@ -151,6 +154,7 @@ private fun weeklySeries(history: List<DictationEntry>, days: List<LocalDate>): 
 fun HomeScreen(data: StoreData, navigate: (Page) -> Unit) {
     val context = LocalContext.current
     var query by remember { mutableStateOf("") }
+    var filter by remember { mutableStateOf(HistoryFilter.ALL) }
     var openId by remember { mutableStateOf<String?>(null) }
     var tick by remember { mutableIntStateOf(0) }
     LifecycleResumeEffect(Unit) {
@@ -170,9 +174,15 @@ fun HomeScreen(data: StoreData, navigate: (Page) -> Unit) {
 
     val dictation by HubDictation.state.collectAsState()
     val needle = query.trim().lowercase()
-    val filtered = remember(data.history, needle) {
-        if (needle.isEmpty()) data.history
-        else data.history.filter { "${it.text} ${it.rawText} ${it.appClass} ${it.appTitle}".lowercase().contains(needle) }
+    val notTranscribed = remember(data.history) { filterHistory(data.history, HistoryFilter.NOT_TRANSCRIBED).size }
+    // The filter disappears with the last failed dictation; fall back to everything.
+    val activeFilter = if (notTranscribed == 0) HistoryFilter.ALL else filter
+    val filtered = remember(data.history, needle, activeFilter) {
+        val shown = filterHistory(data.history, activeFilter)
+        if (needle.isEmpty()) shown
+        else shown.filter {
+            "${it.text} ${it.rawText} ${it.appClass} ${it.appTitle} ${AppNames.of(context, it.appClass)}".lowercase().contains(needle)
+        }
     }
     val groups = remember(filtered) { filtered.groupBy { dayOf(it.createdAt) }.entries.toList() }
 
@@ -206,6 +216,15 @@ fun HomeScreen(data: StoreData, navigate: (Page) -> Unit) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Input(query, { query = it }, "Search", Modifier.weight(1f), shape = Pill, leading = Lucide.Search)
                     if (query.isNotEmpty()) IconBtn(Lucide.X, "Clear search", { query = "" })
+                }
+            }
+            if (notTranscribed > 0) {
+                item("filter") {
+                    Segmented(
+                        activeFilter,
+                        listOf(HistoryFilter.ALL to "All", HistoryFilter.NOT_TRANSCRIBED to "Not transcribed · $notTranscribed"),
+                        { filter = it },
+                    )
                 }
             }
             items(data.suggestions.take(3), key = { "s" + it.id }) { SuggestionCard(it) }
@@ -475,7 +494,7 @@ private fun HistoryRow(entry: DictationEntry, onOpen: () -> Unit) {
         }
         Text(body, style = Type.body, color = if (waiting) Tokens.inkSoft else Tokens.ink, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(end = 10.dp))
         Spacer(Modifier.height(6.dp))
-        Text("${timeOf(entry.createdAt)} · ${appLabel(entry)} · ${duration(entry.durationMs)}", style = Type.hint, color = Tokens.muted)
+        Text("${timeOf(entry.createdAt)} · ${appLabel(context, entry)} · ${duration(entry.durationMs)}", style = Type.hint, color = Tokens.muted)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 when (entry.status) {
@@ -571,7 +590,7 @@ private fun EntrySheet(entry: DictationEntry, suggestions: List<Suggestion>, onC
 
             Column {
                 listOf(
-                    "App" to appLabel(entry),
+                    "App" to appLabel(context, entry),
                     "Spoken" to duration(entry.durationMs),
                     "Words" to "${entry.wordCount}",
                     "Language" to entry.language.ifEmpty { "auto" },
