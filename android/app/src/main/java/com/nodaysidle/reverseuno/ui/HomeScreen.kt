@@ -475,6 +475,8 @@ private fun HistoryRow(entry: DictationEntry, onOpen: () -> Unit) {
     val retrying by HistoryRetry.running.collectAsState()
     val inFlight = entry.id in retrying
     val waiting = entry.status != EntryStatus.DONE
+    // Keyed by entry: a recycled row must not inherit another entry's open confirmation.
+    var confirmDelete by remember(entry.id) { mutableStateOf(false) }
     Card(
         Modifier.fillMaxWidth(),
         flat = true,
@@ -504,15 +506,23 @@ private fun HistoryRow(entry: DictationEntry, onOpen: () -> Unit) {
                     }
                 }
             }
-            if (waiting) {
-                if (inFlight) IconBtn(Lucide.LoaderCircle, "Retrying", {})
-                else if (entry.audioPath != null) IconBtn(Lucide.RotateCcw, "Retry", { HistoryRetry.retry(context, entry.id) { toast(context, it) } }, tint = Tokens.accent)
+            if (confirmDelete) {
+                // Deleting also removes the recording, which for a failed dictation is the only copy.
+                Btn("Cancel", { confirmDelete = false }, size = BtnSize.SM)
+                Spacer(Modifier.width(8.dp))
+                Btn("Delete", { Store.deleteHistory(entry.id); toast(context, "Dictation deleted") }, variant = BtnVariant.DANGER, size = BtnSize.SM)
+                Spacer(Modifier.width(10.dp))
             } else {
-                IconBtn(Lucide.Copy, "Copy", { clipboard.setText(AnnotatedString(entry.text)); toast(context, "Copied to clipboard") })
-                IconBtn(Lucide.Star, if (entry.flagged) "Unflag" else "Flag", { Store.updateHistory(entry.id) { it.copy(flagged = !it.flagged) } }, tint = if (entry.flagged) Tokens.accent else Tokens.inkSoft)
-                IconBtn(Lucide.Pencil, "Edit", onOpen)
+                if (waiting) {
+                    if (inFlight) IconBtn(Lucide.LoaderCircle, "Retrying", {})
+                    else if (entry.audioPath != null) IconBtn(Lucide.RotateCcw, "Retry", { HistoryRetry.retry(context, entry.id) { toast(context, it) } }, tint = Tokens.accent)
+                } else {
+                    IconBtn(Lucide.Copy, "Copy", { clipboard.setText(AnnotatedString(entry.text)); toast(context, "Copied to clipboard") })
+                    IconBtn(Lucide.Star, if (entry.flagged) "Unflag" else "Flag", { Store.updateHistory(entry.id) { it.copy(flagged = !it.flagged) } }, tint = if (entry.flagged) Tokens.accent else Tokens.inkSoft)
+                    IconBtn(Lucide.Pencil, "Edit", onOpen)
+                }
+                IconBtn(Lucide.Trash2, "Delete", { confirmDelete = true }, tint = Tokens.red)
             }
-            IconBtn(Lucide.Trash2, "Delete", { Store.deleteHistory(entry.id); toast(context, "Dictation deleted") }, tint = Tokens.red)
         }
     }
 }
@@ -525,6 +535,7 @@ private fun EntrySheet(entry: DictationEntry, suggestions: List<Suggestion>, onC
     val clipboard = LocalClipboardManager.current
     val openedAt = remember { System.currentTimeMillis() }
     var editing by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
     var text by remember { mutableStateOf(entry.text) }
     var showRaw by remember { mutableStateOf(false) }
     ModalBottomSheet(onDismissRequest = onClose, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = Tokens.paper2) {
@@ -553,7 +564,12 @@ private fun EntrySheet(entry: DictationEntry, suggestions: List<Suggestion>, onC
                 } else {
                     Btn("Copy", { clipboard.setText(AnnotatedString(entry.text)); toast(context, "Copied to clipboard") }, variant = BtnVariant.SOFT, size = BtnSize.SM, icon = Lucide.Copy)
                     Btn("Edit", { text = entry.text; editing = true }, variant = BtnVariant.SOFT, size = BtnSize.SM, icon = Lucide.Pencil)
-                    Btn("Delete", { Store.deleteHistory(entry.id); toast(context, "Dictation deleted"); onClose() }, variant = BtnVariant.DANGER, size = BtnSize.SM, icon = Lucide.Trash2)
+                    if (confirmDelete) {
+                        Btn("Cancel", { confirmDelete = false }, size = BtnSize.SM)
+                        Btn("Delete", { Store.deleteHistory(entry.id); toast(context, "Dictation deleted"); onClose() }, variant = BtnVariant.DANGER, size = BtnSize.SM, icon = Lucide.Trash2)
+                    } else {
+                        Btn("Delete", { confirmDelete = true }, variant = BtnVariant.SOFT, size = BtnSize.SM, icon = Lucide.Trash2)
+                    }
                 }
             }
 
