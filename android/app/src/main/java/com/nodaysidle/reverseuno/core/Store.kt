@@ -88,7 +88,7 @@ object Store {
                 dictionary = if (existing != null) {
                     dictionary.map { if (it.id == existing.id) it.copy(correction = change.to, uses = it.uses + 1) else it }
                 } else {
-                    dictionary + DictionaryEntry(id(), change.from, change.to, createdAt = System.currentTimeMillis())
+                    dictionary + DictionaryEntry(id(), change.from, change.to, createdAt = System.currentTimeMillis(), source = DictionarySource.AUTO)
                 }
             } else if (suggestions.none { it.from.equals(change.from, ignoreCase = true) && it.to == change.to }) {
                 suggestions = suggestions + Suggestion(id(), change.from, change.to, System.currentTimeMillis())
@@ -124,17 +124,30 @@ object Store {
     }
 
     fun addDictionary(word: String, correction: String? = null) = mutate { data ->
-        data.copy(dictionary = withWord(data.dictionary, word, correction))
+        data.copy(dictionary = withWord(data.dictionary, word, correction, DictionarySource.MANUAL))
     }
 
-    private fun withWord(dictionary: List<DictionaryEntry>, word: String, correction: String?): List<DictionaryEntry> {
+    /** Removes several words at once (multi-select); returns how many went. */
+    fun deleteDictionary(ids: Set<String>): Int {
+        var removed = 0
+        mutate { data ->
+            val kept = data.dictionary.filter { it.id !in ids }
+            removed = data.dictionary.size - kept.size
+            data.copy(dictionary = kept)
+        }
+        return removed
+    }
+
+    /** A word typed by hand becomes manual even if it was learned before; a learned word never demotes a manual one. */
+    private fun withWord(dictionary: List<DictionaryEntry>, word: String, correction: String?, source: DictionarySource): List<DictionaryEntry> {
         val cleaned = word.trim().take(60)
         val fixed = correction?.trim()?.take(60)?.ifEmpty { null }
         val existing = dictionary.find { it.word.equals(cleaned, ignoreCase = true) }
+        val keptSource = { e: DictionaryEntry -> if (source == DictionarySource.MANUAL) DictionarySource.MANUAL else e.source }
         return when {
-            existing == null -> dictionary + DictionaryEntry(id(), cleaned, fixed, createdAt = System.currentTimeMillis())
-            correction != null -> dictionary.map { if (it.id == existing.id) it.copy(correction = fixed) else it }
-            else -> dictionary
+            existing == null -> dictionary + DictionaryEntry(id(), cleaned, fixed, createdAt = System.currentTimeMillis(), source = source)
+            correction != null -> dictionary.map { if (it.id == existing.id) it.copy(correction = fixed, source = keptSource(it)) else it }
+            else -> dictionary.map { if (it.id == existing.id) it.copy(source = keptSource(it)) else it }
         }
     }
 
@@ -184,7 +197,7 @@ object Store {
     fun acceptSuggestion(id: String) = mutate { data ->
         val suggestion = data.suggestions.find { it.id == id } ?: return@mutate data
         data.copy(
-            dictionary = withWord(data.dictionary, suggestion.from, suggestion.to),
+            dictionary = withWord(data.dictionary, suggestion.from, suggestion.to, DictionarySource.AUTO),
             suggestions = data.suggestions.filter { it.id != id },
         )
     }

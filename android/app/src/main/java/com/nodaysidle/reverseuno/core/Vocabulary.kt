@@ -176,3 +176,27 @@ val DEVELOPER_VOCABULARY: List<VocabularyEntry> = listOf(
     VocabularyEntry("post gres", "Postgres"),
     VocabularyEntry("es lint", "ESLint"),
 )
+
+/** Dictionary tabs, as in Typeless (All / Auto-added / Manually added), with labels short enough for one row. */
+enum class DictionaryTab(val label: String) { ALL("All"), AUTO("Auto"), MANUAL("Manual") }
+
+/** Entries for [tab] matching [query] (word or correction), starred first, then most used, then A-Z. */
+fun dictionaryView(entries: List<DictionaryEntry>, tab: DictionaryTab, query: String): List<DictionaryEntry> {
+    val needle = query.trim().lowercase()
+    return entries
+        .filter {
+            when (tab) {
+                DictionaryTab.ALL -> true
+                DictionaryTab.AUTO -> it.source == DictionarySource.AUTO
+                DictionaryTab.MANUAL -> it.source == DictionarySource.MANUAL
+            }
+        }
+        .filter { needle.isEmpty() || "${it.word} ${it.correction ?: ""}".lowercase().contains(needle) }
+        .sortedWith(
+            compareByDescending<DictionaryEntry> { it.starred }
+                .thenByDescending { it.uses }
+                .thenBy(String.CASE_INSENSITIVE_ORDER) { it.word },
+        )
+}
+
+fun dictionaryTabCount(entries: List<DictionaryEntry>, tab: DictionaryTab): Int = dictionaryView(entries, tab, "").size

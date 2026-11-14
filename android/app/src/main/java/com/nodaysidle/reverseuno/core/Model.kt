@@ -148,7 +148,16 @@ data class DictionaryEntry(
     val starred: Boolean = false,
     val uses: Int = 1,
     val createdAt: Long,
+    /** Where the word came from; words saved before this existed read as manual. */
+    val source: DictionarySource = DictionarySource.MANUAL,
 )
+
+/** Typeless' split: words you added vs words learned from your edits. */
+@Serializable
+enum class DictionarySource {
+    @SerialName("manual") MANUAL,
+    @SerialName("auto") AUTO,
+}
 
 @Serializable
 data class Snippet(
