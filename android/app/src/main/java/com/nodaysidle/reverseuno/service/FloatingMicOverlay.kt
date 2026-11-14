@@ -211,6 +211,15 @@ class FloatingMicOverlay(
         setState(other.state, other.message, other.sticky)
     }
 
+    /** Re-docks at the default spot after [clearSavedPosition]. */
+    fun resetPosition() {
+        dockedRight = true
+        params.gravity = edgeGravity()
+        params.x = dp(12)
+        moveToY(dockY(), animate = true)
+        updateLayout()
+    }
+
     fun setLocked(value: Boolean) {
         if (locked == value) return
         locked = value
@@ -556,23 +565,29 @@ class FloatingMicOverlay(
     private fun screenHeight(): Int = windowManager.currentWindowMetrics.bounds.height()
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
-    private companion object {
-        const val PREF_EDGE_OFFSET = "floating_bubble_edge_offset"
-        const val PREF_EDGE_Y = "floating_bubble_y"
-        const val PREF_DOCKED_RIGHT = "floating_bubble_docked_right"
-        const val PREF_DOCK_VERSION = "floating_bubble_dock_version"
-        const val HIDE_GRACE_MS = 150L
-        const val FADE_IN_MS = 150
-        const val FADE_OUT_MS = 120
-        const val MOVE_MS = 180L
-        const val HOLD_THRESHOLD_MS = 300L
-        const val PILL_ALPHA = 0.92f
-        const val DOT_ALPHA = 0.8f
-        const val DOCK_Y_FRACTION = 0.28f
-        const val DOCK_VERSION = 2
-        const val KEYBOARD_GAP_DP = 12
-        const val HIDDEN_SCALE = 0.9f
-        const val PRESSED_SCALE = 0.94f
+    companion object {
+        /** Forgets where the user dragged the bubble. */
+        fun clearSavedPosition(context: Context) {
+            context.getSharedPreferences("reverseuno", Context.MODE_PRIVATE).edit()
+                .remove(PREF_EDGE_Y).remove(PREF_EDGE_OFFSET).remove(PREF_DOCKED_RIGHT).apply()
+        }
+
+        private const val PREF_EDGE_OFFSET = "floating_bubble_edge_offset"
+        private const val PREF_EDGE_Y = "floating_bubble_y"
+        private const val PREF_DOCKED_RIGHT = "floating_bubble_docked_right"
+        private const val PREF_DOCK_VERSION = "floating_bubble_dock_version"
+        private const val HIDE_GRACE_MS = 150L
+        private const val FADE_IN_MS = 150
+        private const val FADE_OUT_MS = 120
+        private const val MOVE_MS = 180L
+        private const val HOLD_THRESHOLD_MS = 300L
+        private const val PILL_ALPHA = 0.92f
+        private const val DOT_ALPHA = 0.8f
+        private const val DOCK_Y_FRACTION = 0.28f
+        private const val DOCK_VERSION = 2
+        private const val KEYBOARD_GAP_DP = 12
+        private const val HIDDEN_SCALE = 0.9f
+        private const val PRESSED_SCALE = 0.94f
     }
 }
 

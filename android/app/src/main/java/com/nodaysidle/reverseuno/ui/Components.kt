@@ -36,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
@@ -150,13 +151,14 @@ fun Btn(
     Row(
         modifier
             .height(size.height)
+            // Dim the whole pill when disabled; a background after the padding drew a grey box inside it.
+            .alpha(if (enabled) 1f else 0.45f)
             .then(if (variant == BtnVariant.PRIMARY || variant == BtnVariant.ACCENT) Modifier.shadow(6.dp, Pill, ambientColor = bg, spotColor = bg) else Modifier)
             .clip(Pill)
             .background(bg, Pill)
             .border(1.dp, border, Pill)
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
-            .padding(horizontal = size.hPad)
-            .then(if (enabled) Modifier else Modifier.background(p.paper.copy(alpha = 0.35f))),
+            .padding(horizontal = size.hPad),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
     ) {

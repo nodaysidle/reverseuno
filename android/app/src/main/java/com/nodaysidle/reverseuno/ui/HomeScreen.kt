@@ -163,7 +163,6 @@ fun HomeScreen(data: StoreData, navigate: (Page) -> Unit) {
     }
     val micOn = remember(tick) { SystemSetup.hasMic(context) }
     val a11yOn = remember(tick) { SystemSetup.isAccessibilityOn(context) }
-    val overlayOn = remember(tick) { SystemSetup.hasOverlay(context) }
     val keyOn = remember(tick) {
         KeyVault.get(context, Secret.OPENROUTER).isNotBlank() ||
             KeyVault.get(context, Secret.DEEPGRAM).isNotBlank() ||
@@ -193,20 +192,20 @@ fun HomeScreen(data: StoreData, navigate: (Page) -> Unit) {
             contentPadding = PaddingValues(start = Gutter, end = Gutter, top = 16.dp, bottom = 104.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (!micOn || !a11yOn || !overlayOn || !keyOn) {
+            // The bubble is an accessibility overlay now, so "display over other apps" is optional.
+            if (!micOn || !a11yOn || !keyOn) {
                 item("setup") {
                     SetupCard(
-                        micOn, a11yOn, overlayOn, keyOn,
+                        micOn, a11yOn, keyOn,
                         askMic,
                         { SystemSetup.openAccessibility(context) },
-                        { SystemSetup.openOverlay(context) },
                         { navigate(Page.SETTINGS) },
                     )
                 }
             }
             item("status") {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    BubbleStatus(live = a11yOn && overlayOn && data.settings.bubble.enabled, a11yOn = a11yOn, overlayOn = overlayOn)
+                    BubbleStatus(live = a11yOn && data.settings.bubble.enabled, a11yOn = a11yOn)
                     if (dictation.phase != HubPhase.IDLE && dictation.message.isNotBlank()) {
                         Text(dictation.message, style = Type.small, color = if (dictation.phase == HubPhase.ERROR) Tokens.red else Tokens.inkSoft)
                     }
@@ -260,22 +259,20 @@ fun HomeScreen(data: StoreData, navigate: (Page) -> Unit) {
 private fun SetupCard(
     micOn: Boolean,
     a11yOn: Boolean,
-    overlayOn: Boolean,
     keyOn: Boolean,
     askMic: () -> Unit,
     openA11y: () -> Unit,
-    openOverlay: () -> Unit,
     openSettings: () -> Unit,
 ) {
-    val done = listOf(micOn, a11yOn, overlayOn, keyOn).count { it }
+    val steps = listOf(micOn, a11yOn, keyOn)
+    val done = steps.count { it }
     Card(Modifier.fillMaxWidth()) {
         Eyebrow("Get set up")
         Spacer(Modifier.height(6.dp))
-        Text("$done of 4 done", style = Type.sectionTitle, color = Tokens.ink)
+        Text("$done of ${steps.size} done", style = Type.sectionTitle, color = Tokens.ink)
         Spacer(Modifier.height(6.dp))
         SetupItem(micOn, "Allow the microphone", "Reverseuno listens only while you dictate.", "Allow", askMic)
         SetupItem(a11yOn, "Turn on the accessibility service", "It sees the text field and types what you say.", "Turn on", openA11y)
-        SetupItem(overlayOn, "Allow display over other apps", "Keeps the bubble alive in other apps.", "Allow", openOverlay)
         SetupItem(keyOn, "Add a transcription key", "Deepgram, xAI, or OpenRouter. Any one works.", "Add key", openSettings)
     }
 }
@@ -294,14 +291,13 @@ private fun SetupItem(done: Boolean, title: String, detail: String, action: Stri
 
 /** The bubble's state in one line; the dot is green only while the bubble is really live. */
 @Composable
-private fun BubbleStatus(live: Boolean, a11yOn: Boolean, overlayOn: Boolean) {
+private fun BubbleStatus(live: Boolean, a11yOn: Boolean) {
     Row(Modifier.padding(start = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Box(Modifier.size(7.dp).background(if (live) Tokens.green else Tokens.muted, CircleShape))
         Text(
             when {
                 live -> "Ready"
                 !a11yOn -> "Bubble off. Turn on the accessibility service."
-                !overlayOn -> "Bubble off. Allow display over other apps."
                 else -> "Bubble hidden. Show it in Settings."
             },
             style = Type.small, color = Tokens.inkSoft,

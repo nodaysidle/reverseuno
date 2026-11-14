@@ -130,11 +130,17 @@ fun SettingsScreen(data: StoreData) {
                         Btn("Open settings", { SystemSetup.openAccessibility(context) }, size = BtnSize.SM)
                     }
                 }
-                SettingRow("Display over other apps", "Keeps the bubble alive outside reverseuno, even if the accessibility service restarts.") {
+                SettingRow("Display over other apps", "Optional. The bubble runs inside the accessibility service; this only keeps a dot up (tap it to finish setup) while that service is off.") {
                     Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         StatusChip(overlayOn, "On", "Off")
                         if (!overlayOn) Btn("Allow", { SystemSetup.openOverlay(context) }, size = BtnSize.SM)
                     }
+                }
+                SettingRow("Bubble position", "Drag the bubble to move it; drop it on the X to hide it in that app until you leave it. This puts it back on the right edge.") {
+                    Btn("Reset", {
+                        BubbleRuntime.resetPosition(context)
+                        toast(context, "Bubble moved back to the right edge")
+                    }, size = BtnSize.SM)
                 }
                 SettingRow("Microphone", "Audio is recorded only while the bubble is listening.") {
                     Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {

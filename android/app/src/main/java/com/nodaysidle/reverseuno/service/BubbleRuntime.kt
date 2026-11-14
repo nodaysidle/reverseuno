@@ -132,6 +132,12 @@ object BubbleRuntime {
         }
     }
 
+    /** Back to the first-run spot (right edge, upper third), for a bubble dragged somewhere awkward. */
+    fun resetPosition(context: Context) {
+        FloatingMicOverlay.clearSavedPosition(context)
+        overlay?.resetPosition()
+    }
+
     /** Keyguard state: the bubble never shows on the lock screen. */
     fun setLocked(value: Boolean) {
         locked = value
