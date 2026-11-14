@@ -37,6 +37,14 @@ class DictatableFieldTest {
     }
 
     @Test
+    fun aRememberedFieldIsOnlyUsableWhileItsAppIsInFront() {
+        assertTrue(cachedFieldUsable("com.example.notes", "com.example.notes"))
+        assertFalse(cachedFieldUsable("com.example.notes", "com.nodaysidle.reverseuno"))
+        assertFalse(cachedFieldUsable("com.example.notes", null))
+        assertFalse(cachedFieldUsable("", ""))
+    }
+
+    @Test
     fun micLevelMapsSilenceLowAndLoudSpeechHigh() {
         assertEquals(0.08f, normalizedLevel(0), 0f)
         assertEquals(1f, normalizedLevel(32767), 0.001f)

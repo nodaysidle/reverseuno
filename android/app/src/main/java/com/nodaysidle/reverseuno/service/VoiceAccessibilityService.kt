@@ -493,7 +493,9 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
      */
     private suspend fun injectText(text: String): InsertMethod {
         val focused = waitForFocusedEditable()
-            ?: lastEditableNode?.takeIf { isLastEditableFresh() }
+            ?: lastEditableNode?.takeIf {
+                isLastEditableFresh() && cachedFieldUsable(lastEditablePackage, rootInActiveWindow?.packageName?.toString())
+            }
             ?: run {
                 setClipboard(text)
                 Log.w(TAG, "No editable node available; text left on clipboard")
@@ -502,6 +504,13 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
 
         // Refresh can fail while the target view re-renders; the node is still usable.
         runCatching { focused.refresh() }
+
+        // Focus may have moved to a password or number field while the transcript was on its way.
+        if (!isDictatableField(focused.isEditable, focused.isPassword, focused.inputType)) {
+            setClipboard(text)
+            Log.w(TAG, "Focused field does not take dictation; text left on clipboard")
+            return InsertMethod.NONE
+        }
 
         if (Build.VERSION.SDK_INT >= 33 && tryCommitText(text, focused)) return InsertMethod.COMMIT
 
@@ -528,7 +537,9 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
         }
 
         val liveFocused = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-        if (liveFocused != null && liveFocused != focused) {
+        if (liveFocused != null && liveFocused != focused &&
+            isDictatableField(liveFocused.isEditable, liveFocused.isPassword, liveFocused.inputType)
+        ) {
             if (runCatching { liveFocused.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args) }.getOrDefault(false)) {
                 return InsertMethod.SET_TEXT
             }
@@ -698,6 +709,10 @@ internal fun isDictatableField(editable: Boolean, password: Boolean, inputType: 
     val variation = inputType and InputType.TYPE_MASK_VARIATION
     return !(inputClass == InputType.TYPE_CLASS_TEXT && variation in PASSWORD_VARIATIONS)
 }
+
+/** A remembered field may only be written while its app is still the one in front. */
+internal fun cachedFieldUsable(cachedPackage: String, activePackage: String?): Boolean =
+    cachedPackage.isNotBlank() && cachedPackage == activePackage
 
 private val PASSWORD_VARIATIONS = setOf(
     InputType.TYPE_TEXT_VARIATION_PASSWORD,
