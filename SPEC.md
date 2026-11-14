@@ -391,7 +391,7 @@ with native audio. Provider ids are `deepgram` (default), `xai`, and `openrouter
 - Deepgram: `wss://api.deepgram.com/v1/listen`, `model=nova-3` (configurable),
   `encoding=linear16`, `sample_rate=16000`, `channels=1`, `interim_results=true`,
   `smart_format=true`, `punctuate=true`, `endpointing=300`, `utterance_end_ms=1000`.
-  `language` is sent only for a two-letter code, otherwise `detect_language=true`.
+  `language` is the two-letter code when one is set, otherwise `multi` (`detect_language` is upload-only).
   Dictionary words are sent as repeated `keyterm` parameters (≤50, ≤600 chars total in
   the one-shot prompt).
 - xAI: `wss://api.x.ai/v1/stt`, `model=grok-voice-transcribe-2.0`,
@@ -404,6 +404,10 @@ with native audio. Provider ids are `deepgram` (default), `xai`, and `openrouter
   is awaited for at most 8 s, then any accumulated final text is used.
 - A stream failure, a missing selected-provider key, or `stt.streaming=false` falls back
   to the one-shot OpenRouter request with the WAV file.
+- `stt.allowedLanguages` (two-letter codes, empty = off): a transcript whose script or reported
+  language is outside the set is transcribed once more from the WAV through OpenRouter with
+  `stt.strictModel` and a forced language; if that also fails the entry is failed with
+  "Wrong language detected" and nothing is inserted.
 
 ### One-shot fallback
 

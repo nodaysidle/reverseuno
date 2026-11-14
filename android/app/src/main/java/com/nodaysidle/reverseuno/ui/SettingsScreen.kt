@@ -8,6 +8,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -157,6 +158,28 @@ fun SettingsScreen(data: StoreData) {
                         LANGUAGE_OPTIONS.map { it.value to it.label },
                         { v -> Store.updateSettings { it.copy(stt = it.stt.copy(language = v)) } },
                     )
+                }
+                SettingRow(
+                    "Languages you speak",
+                    "Text in any other language is rejected and transcribed again. Pick none to turn the check off.",
+                    stacked = true,
+                ) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        LANGUAGE_OPTIONS.filter { it.value != "auto" }.forEach { option ->
+                            val on = option.value in settings.stt.allowedLanguages
+                            Btn(
+                                option.label,
+                                {
+                                    Store.updateSettings {
+                                        val next = if (on) it.stt.allowedLanguages - option.value else it.stt.allowedLanguages + option.value
+                                        it.copy(stt = it.stt.copy(allowedLanguages = next))
+                                    }
+                                },
+                                variant = if (on) BtnVariant.PRIMARY else BtnVariant.GHOST,
+                                size = BtnSize.SM,
+                            )
+                        }
+                    }
                 }
                 SettingRow(
                     "Test the pipeline",

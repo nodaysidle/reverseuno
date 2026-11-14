@@ -59,7 +59,8 @@ internal fun deepgramRequestUrl(model: String, language: String, keyterms: List<
     if (Regex("^[a-z]{2}$", RegexOption.IGNORE_CASE).matches(language)) {
         builder.addQueryParameter("language", language.lowercase())
     } else {
-        builder.addQueryParameter("detect_language", "true")
+        // detect_language is upload-only on Deepgram; "multi" is its streaming form.
+        builder.addQueryParameter("language", "multi")
     }
     keyterms.asSequence()
         .map { it.trim() }

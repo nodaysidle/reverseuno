@@ -42,6 +42,10 @@ data class SttSettings(
     val xaiModel: String = "grok-voice-transcribe-2.0",
     /** OpenRouter uploads go as Ogg/Opus (~8x smaller than WAV); a rejected or failed encode sends the WAV. */
     val compressUploads: Boolean = true,
+    /** Languages the user dictates in (two-letter codes). Empty = no check. A transcript outside them is rejected. */
+    val allowedLanguages: List<String> = emptyList(),
+    /** OpenRouter model for the second try after a rejected transcript; it must obey a forced language. */
+    val strictModel: String = "openai/whisper-large-v3",
 )
 
 const val PROVIDER_OPENROUTER = "openrouter"

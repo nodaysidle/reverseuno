@@ -49,7 +49,8 @@ class StreamingParseTest {
         assertEquals(1, Regex("keyterm=reverseuno").findAll(url).count())
 
         val auto = deepgramRequestUrl("nova-3", "auto", emptyList()).toString()
-        assertTrue(auto.contains("detect_language=true"))
+        assertTrue(auto.contains("language=multi"))
+        assertFalse(auto.contains("detect_language"))
     }
 
     @Test

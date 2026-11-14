@@ -8,11 +8,14 @@ import com.nodaysidle.reverseuno.cleanup.needsFormatting
 import com.nodaysidle.reverseuno.core.DictationEntry
 import com.nodaysidle.reverseuno.core.EntryStatus
 import com.nodaysidle.reverseuno.core.Store
+import com.nodaysidle.reverseuno.core.WRONG_LANGUAGE
 import com.nodaysidle.reverseuno.core.applyDictionary
 import com.nodaysidle.reverseuno.core.expandSnippet
 import com.nodaysidle.reverseuno.core.preferredSpellings
 import com.nodaysidle.reverseuno.core.sanitizeTranscript
+import com.nodaysidle.reverseuno.core.strictRetryLanguage
 import com.nodaysidle.reverseuno.core.usesStreaming
+import com.nodaysidle.reverseuno.core.violatesAllowedLanguages
 import com.nodaysidle.reverseuno.core.wordCount
 import com.nodaysidle.reverseuno.security.KeyVault
 import com.nodaysidle.reverseuno.security.Secret
@@ -59,7 +62,8 @@ class Pipeline(private val context: Context) {
 
     /**
      * [streamed] is the result of the live stream when it produced text; it skips the one-shot call.
-     * Null when nothing was said. Throws when transcription fails.
+     * Null when nothing was said. Throws when transcription fails, and throws [WRONG_LANGUAGE]
+     * when the transcript is still outside `stt.allowedLanguages` after the strict second try.
      */
     suspend fun process(
         audio: File,
@@ -71,10 +75,10 @@ class Pipeline(private val context: Context) {
     ): Transcript? {
         val settings = Store.settings
         val data = Store.data.value
-        val stt: SttResult
-        val asrMs: Long
-        val provider: String
-        val model: String
+        var stt: SttResult
+        var asrMs: Long
+        var provider: String
+        var model: String
         if (streamed != null) {
             stt = streamed
             asrMs = streamedMs
@@ -92,6 +96,21 @@ class Pipeline(private val context: Context) {
             asrMs = System.currentTimeMillis() - asrStarted
             provider = "openrouter"
             model = settings.stt.model
+        }
+        val allowed = settings.stt.allowedLanguages
+        if (violatesAllowedLanguages(stt.text, stt.language, allowed)) {
+            val forced = strictRetryLanguage(settings.stt.language, allowed)
+            val sameCall = provider == "openrouter" && model == settings.stt.strictModel && settings.stt.language.equals(forced, ignoreCase = true)
+            // No second try possible (no OpenRouter key) or it would repeat the same request.
+            if (!hasOneShot() || sameCall) error(WRONG_LANGUAGE)
+            Log.w(TAG, "Transcript outside the allowed languages; retrying with ${settings.stt.strictModel} lang=$forced")
+            val retryStarted = System.currentTimeMillis()
+            stt = OpenRouterSttClient(KeyVault.get(context, Secret.OPENROUTER), settings.stt.strictModel)
+                .transcribe(audio, forced, preferredSpellings(data.dictionary, settings.stt.keytermLimit))
+            asrMs += System.currentTimeMillis() - retryStarted
+            provider = "openrouter"
+            model = settings.stt.strictModel
+            if (violatesAllowedLanguages(stt.text, stt.language, allowed)) error(WRONG_LANGUAGE)
         }
         val raw = sanitizeTranscript(stt.text).ifEmpty { return null }
 
