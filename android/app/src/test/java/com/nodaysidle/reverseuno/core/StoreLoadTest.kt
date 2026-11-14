@@ -17,7 +17,7 @@ class StoreLoadTest {
     @Test fun aMissingFileIsAFirstRunAndMovesNothing() {
         val dir = tmp.root
         val (data, kept) = Store.load(File(dir, "store.json"))
-        assertEquals(StoreData(), data)
+        assertEquals(StoreData(createdAt = 0), data.copy(createdAt = 0))
         assertNull(kept)
         assertEquals(0, dir.list()!!.size)
     }
@@ -25,7 +25,7 @@ class StoreLoadTest {
     @Test fun aCorruptFileIsKeptAsideWithItsContent() {
         val file = File(tmp.root, "store.json").apply { writeText("{ not json") }
         val (data, kept) = Store.load(file, now = 42)
-        assertEquals(StoreData(), data)
+        assertEquals(StoreData(createdAt = 0), data.copy(createdAt = 0))
         assertEquals("store.json.corrupt-42", kept!!.name)
         assertTrue(kept.exists())
         assertEquals("{ not json", kept.readText())
