@@ -20,13 +20,33 @@ object Store {
     val data: StateFlow<StoreData> get() = state
     val settings: Settings get() = state.value.settings
 
+    /** Prefix of a store file that could not be read and was kept for recovery. */
+    internal const val CORRUPT_PREFIX = "store.json.corrupt-"
+
+    /**
+     * Reads [file]. A missing file is a first run: defaults, nothing moved. A file that cannot be
+     * decoded is moved aside as store.json.corrupt-<time> (so the next save cannot overwrite it)
+     * and defaults are returned; the second value is that file, null when the read was fine.
+     */
+    internal fun load(file: File, now: Long = System.currentTimeMillis()): Pair<StoreData, File?> {
+        if (!file.exists()) return StoreData() to null
+        return runCatching<Pair<StoreData, File?>> { migrate(json.decodeFromString<StoreData>(file.readText())) to null }
+            .getOrElse {
+                val aside = File(file.parentFile, "$CORRUPT_PREFIX$now")
+                StoreData() to (if (file.renameTo(aside)) aside else file)
+            }
+    }
+
+    /** True while an unreadable store is kept in the folder: its recordings must not be swept. */
+    internal fun hasCorruptStore(fileNames: List<String>): Boolean = fileNames.any { it.startsWith(CORRUPT_PREFIX) }
+
     @Synchronized
     fun init(context: Context) {
         if (::file.isInitialized) return
         file = File(context.filesDir, "store.json")
-        state.value = runCatching { migrate(json.decodeFromString<StoreData>(file.readText())) }
-            .onFailure { if (file.exists()) Log.w(TAG, "Store unreadable; starting fresh", it) }
-            .getOrDefault(StoreData())
+        val (loaded, kept) = load(file)
+        if (kept != null) Log.w(TAG, "Store unreadable; kept as ${kept.name}, starting fresh")
+        state.value = loaded
     }
 
     @Synchronized
@@ -63,8 +83,9 @@ object Store {
         mutate { it.copy(history = interruptedToFailed(it.history)) }
     }
 
-    /** Deletes recordings in [dir] that no entry points at. */
+    /** Deletes recordings in [dir] that no entry points at. Skipped while an unreadable store is kept: its entries are unknown. */
     fun sweepRecordings(dir: File) {
+        if (hasCorruptStore(file.parentFile?.list()?.toList().orEmpty())) return
         val names = dir.list()?.toList() ?: return
         orphanRecordings(names, state.value.history).forEach { File(dir, it).delete() }
     }
