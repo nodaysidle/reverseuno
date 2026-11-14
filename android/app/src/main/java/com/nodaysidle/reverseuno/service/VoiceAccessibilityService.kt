@@ -66,6 +66,8 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
     private var streamProvider = "deepgram"
     private var streamModel = ""
     private var processingJob: Job? = null
+    /** The history entry [processingJob] is transcribing, so a teardown can hand it to the retry pill. */
+    private var processingEntryId: String? = null
     private var feedbackJob: Job? = null
     private var lastEditableNode: AccessibilityNodeInfo? = null
     private var lastEditableText: String = ""
@@ -120,6 +122,8 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
         Store.pruneExpired()
         Store.sweepRecordings(DictationAudioRecorder.recordingsDir(this))
         BubbleRuntime.hostInAccessibility(this)
+        // A new service has nothing running: a leftover "Transcribing" or message would never clear.
+        if (isStaleBubbleState(overlay?.state, retryableEntryId != null)) overlay?.setState(BubbleState.IDLE)
         scope.launch { Store.data.collect { clearRetryableIfResolved(it.history) } }
         onAccessibilityEvent(null)
     }
@@ -201,12 +205,20 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
         windows.any { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
 
     override fun onInterrupt() {
-        cancelRecording()
+        saveForLater("Interrupted")
     }
 
     override fun onDestroy() {
         // The system can recreate this service at any time; what was said so far is kept.
         if (isRecording) saveForLater("Interrupted")
+        // A transcription cut off here would leave the pill on "Transcribing": offer the retry instead.
+        val interrupted = processingEntryId?.takeIf { processingJob?.isActive == true }
+        if (interrupted != null) {
+            showRetryable(interrupted, "Interrupted")
+        } else if (isStaleBubbleState(overlay?.state, retryableEntryId != null)) {
+            feedbackJob?.cancel()
+            overlay?.setState(BubbleState.IDLE)
+        }
         runCatching { unregisterReceiver(screenReceiver) }
         BubbleRuntime.releaseAccessibilityHost(this)
         if (::guards.isInitialized) guards.releaseAll()
@@ -345,6 +357,7 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
         // Saved before anything can fail: the audio stays on disk until the transcript is in.
         val entry = pipeline.savePending(audio, target, startedAt, durationMs)
         retryableEntryId = null
+        processingEntryId = entry.id
         processingJob = scope.launch {
             val stopStarted = System.currentTimeMillis()
             val streamed: SttResult? = stream?.let { active ->
@@ -415,6 +428,7 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
         feedbackJob?.cancel()
         cacheCurrentFocusedEditable()
         overlay?.setState(BubbleState.PROCESSING)
+        processingEntryId = entryId
         processingJob = scope.launch {
             val transcript = try {
                 pipeline.retranscribe(entry)
@@ -726,3 +740,10 @@ internal fun normalizedLevel(maxAmplitude: Int): Float {
     val db = 20f * kotlin.math.log10(maxAmplitude / 32767f)
     return ((db + 50f) / 50f).coerceIn(0.08f, 1f)
 }
+
+/**
+ * A pill state that outlived the service that set it: nothing is running any more, so anything
+ * but idle is stale, except the error pill that still offers a retry.
+ */
+internal fun isStaleBubbleState(state: BubbleState?, hasRetryOffer: Boolean): Boolean =
+    state != null && state != BubbleState.IDLE && !(state == BubbleState.ERROR && hasRetryOffer)
