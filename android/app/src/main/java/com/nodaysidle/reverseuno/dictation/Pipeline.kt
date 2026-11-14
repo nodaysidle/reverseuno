@@ -17,9 +17,12 @@ import com.nodaysidle.reverseuno.core.wordCount
 import com.nodaysidle.reverseuno.security.KeyVault
 import com.nodaysidle.reverseuno.security.Secret
 import com.nodaysidle.reverseuno.stt.OpenRouterSttClient
+import com.nodaysidle.reverseuno.stt.OpusEncoder
 import com.nodaysidle.reverseuno.stt.SttResult
 import java.io.File
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** Where the text goes: a package in another app, or the hub itself (empty). */
 data class Target(val appClass: String = "", val appTitle: String = "")
@@ -79,8 +82,13 @@ class Pipeline(private val context: Context) {
             model = streamedModel.ifBlank { settings.stt.model }
         } else {
             val asrStarted = System.currentTimeMillis()
-            stt = OpenRouterSttClient(KeyVault.get(context, Secret.OPENROUTER), settings.stt.model)
-                .transcribe(audio, settings.stt.language, preferredSpellings(data.dictionary, settings.stt.keytermLimit))
+            val compressed = if (settings.stt.compressUploads) compressForUpload(audio) else null
+            try {
+                stt = OpenRouterSttClient(KeyVault.get(context, Secret.OPENROUTER), settings.stt.model)
+                    .transcribe(audio, settings.stt.language, preferredSpellings(data.dictionary, settings.stt.keytermLimit), compressed)
+            } finally {
+                compressed?.delete()
+            }
             asrMs = System.currentTimeMillis() - asrStarted
             provider = "openrouter"
             model = settings.stt.model
@@ -198,6 +206,17 @@ class Pipeline(private val context: Context) {
         val audio = entry.audioPath?.let(::File)?.takeIf { it.exists() } ?: error(NO_AUDIO)
         Store.updateHistory(entry.id) { it.copy(status = EntryStatus.PENDING) }
         return process(audio, Target(entry.appClass, entry.appTitle))
+    }
+
+    /** Ogg/Opus copy of [wav] in the cache for one upload; null (send the WAV) if encoding fails. */
+    private suspend fun compressForUpload(wav: File): File? = withContext(Dispatchers.IO) {
+        val out = File(context.cacheDir, "upload_${wav.nameWithoutExtension}.ogg")
+        runCatching { OpusEncoder.wavToOgg(wav, out) }
+            .onFailure {
+                out.delete()
+                Log.w(TAG, "Opus encode failed; uploading the WAV: ${it.message}")
+            }
+            .getOrNull()
     }
 
     private companion object {

@@ -40,6 +40,8 @@ data class SttSettings(
     val deepgramModel: String = "nova-3",
     /** xAI streaming model. */
     val xaiModel: String = "grok-voice-transcribe-2.0",
+    /** OpenRouter uploads go as Ogg/Opus (~8x smaller than WAV); a rejected or failed encode sends the WAV. */
+    val compressUploads: Boolean = true,
 )
 
 const val PROVIDER_OPENROUTER = "openrouter"

@@ -1,5 +1,6 @@
 package com.nodaysidle.reverseuno.stt
 
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -24,13 +25,29 @@ class OpenRouterSttClient(
     private val client: OkHttpClient = HTTP,
     private val endpoint: String = DEFAULT_ENDPOINT,
 ) {
-    /** [language] "auto" leaves it out so the model detects it; [keyterms] become a spelling hint. */
-    suspend fun transcribe(audio: File, language: String, keyterms: List<String>): SttResult = withContext(Dispatchers.IO) {
+    /**
+     * [language] "auto" leaves it out so the model detects it; [keyterms] become a spelling hint.
+     * [compressed] (Ogg/Opus of the same take) is sent instead of [audio] when given; if the model
+     * rejects that format the WAV goes once more.
+     */
+    suspend fun transcribe(audio: File, language: String, keyterms: List<String>, compressed: File? = null): SttResult = withContext(Dispatchers.IO) {
         require(apiKey.isNotBlank()) { "OpenRouter API key is missing" }
         require(audio.length() > 0) { "No audio to transcribe" }
 
-        val body = openRouterSttBody(model, audio.readBytes(), audio.extension, language, keyterms)
+        var (code, payload) = attempt(compressed ?: audio, language, keyterms)
+        if (compressed != null && shouldResendAsWav(code)) {
+            Log.w(TAG, "OpenRouter rejected .${compressed.extension} ($code); sending the WAV")
+            val wav = attempt(audio, language, keyterms)
+            code = wav.first
+            payload = wav.second
+        }
+        check(code in 200..299) { "OpenRouter $code: ${payload.take(240)}" }
+        val data = JSONObject(payload)
+        SttResult(data.optString("text").trim(), data.optString("language").ifEmpty { language })
+    }
 
+    private fun attempt(file: File, language: String, keyterms: List<String>): Pair<Int, String> {
+        val body = openRouterSttBody(model, file.readBytes(), file.extension, language, keyterms)
         var (code, payload) = sendWithRetry(body)
         if (code == 400 && body.has("prompt")) {
             // Not every transcription model accepts a prompt; retry once without it.
@@ -39,9 +56,7 @@ class OpenRouterSttClient(
             code = retry.first
             payload = retry.second
         }
-        check(code in 200..299) { "OpenRouter $code: ${payload.take(240)}" }
-        val data = JSONObject(payload)
-        SttResult(data.optString("text").trim(), data.optString("language").ifEmpty { language })
+        return code to payload
     }
 
     /** Retries 408/425/429/5xx up to [RETRY_MAX_ATTEMPTS] times, honouring Retry-After when present. */
@@ -75,6 +90,7 @@ class OpenRouterSttClient(
     }
 
     companion object {
+        private const val TAG = "OpenRouterStt"
         const val DEFAULT_ENDPOINT = "https://openrouter.ai/api/v1/audio/transcriptions"
 
         // OpenRouter's upstream limit is 60 s; the call deadline leaves room for one bounded retry.

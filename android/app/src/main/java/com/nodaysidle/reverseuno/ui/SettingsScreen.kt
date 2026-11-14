@@ -202,6 +202,9 @@ fun SettingsScreen(data: StoreData) {
                         ModelIdInput(current) { v -> Store.updateSettings { it.copy(stt = it.stt.copy(model = v)) } }
                     }
                 }
+                SettingRow("Compress uploads", "Sends Ogg/Opus, about 8x smaller than WAV. Falls back to WAV if a model refuses it.") {
+                    Toggle(settings.stt.compressUploads, { v -> Store.updateSettings { it.copy(stt = it.stt.copy(compressUploads = v)) } }, "Compress uploads")
+                }
                 SettingRow("Deepgram", "Streaming key (dg-…). Nova-3 with keyterm prompting.", stacked = true) {
                     KeyRow(Secret.DEEPGRAM, "dg-…", resume)
                 }
