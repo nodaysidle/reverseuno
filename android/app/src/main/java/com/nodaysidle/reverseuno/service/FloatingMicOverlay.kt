@@ -401,7 +401,7 @@ class FloatingMicOverlay(
                 dragStartScreenY = params.y
 
                 // A sticky retry message still lets you hold to start a new dictation; tap retries.
-                if ((state == BubbleState.IDLE && expanded) || sticky) postDelayed(holdRunnable, HOLD_THRESHOLD_MS)
+                if (shouldArmHold(state, sticky)) postDelayed(holdRunnable, HOLD_THRESHOLD_MS)
             }
             MotionEvent.ACTION_MOVE -> {
                 val dx = event.rawX - initialTouchX
@@ -548,10 +548,6 @@ class FloatingMicOverlay(
     }
 
     private fun updateContentDescription() {
-        if (!expanded && state == BubbleState.IDLE) {
-            contentDescription = "reverseuno. Tap to open."
-            return
-        }
         contentDescription = when (state) {
             BubbleState.IDLE -> "Start dictation. Hold to talk."
             BubbleState.RECORDING -> "Stop dictation"
@@ -604,3 +600,6 @@ private class OverlayLifecycleOwner : SavedStateRegistryOwner {
     override val lifecycle: Lifecycle get() = registry
     override val savedStateRegistry: SavedStateRegistry get() = savedState.savedStateRegistry
 }
+
+/** A press arms hold-to-talk on the resting pill, and on a sticky retry message (hold starts a new dictation). */
+internal fun shouldArmHold(state: BubbleState, sticky: Boolean): Boolean = state == BubbleState.IDLE || sticky

@@ -115,7 +115,7 @@ object BubbleRuntime {
             context = context,
             windowType = type,
             onTap = { controller?.onTap() ?: onMissingController() },
-            onHoldStart = { controller?.onHoldStart() },
+            onHoldStart = { controller?.onHoldStart() ?: onMissingController() },
             onHoldEnd = { controller?.onHoldEnd() },
             onHoldCancel = { controller?.onHoldCancel() },
             onDismiss = { controller?.onDismiss() },
