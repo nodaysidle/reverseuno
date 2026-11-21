@@ -77,7 +77,9 @@ object BubbleRuntime {
     fun hostInAccessibility(service: AccessibilityService) {
         accessibilityHost = service
         if (!Store.settings.bubble.enabled) return
-        // The foreground host keeps running as a keep-alive; it no longer owns a window.
+        // Keep BubbleService running as a true foreground service so MIUI does not throttle
+        // background WebSocket/HTTP traffic while dictating from another app.
+        runCatching { ContextCompat.startForegroundService(service, Intent(service, BubbleService::class.java)) }
         hostIn(service)
     }
 

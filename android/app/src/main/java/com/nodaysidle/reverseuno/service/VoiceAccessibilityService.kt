@@ -46,10 +46,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class VoiceAccessibilityService : AccessibilityService(), BubbleController {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -352,24 +354,27 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
         val startedAt = recordingStartedAt
         val durationMs = System.currentTimeMillis() - startedAt
         val target = Target(lastEditablePackage, appLabel(lastEditablePackage))
-        // Saved before anything can fail: the audio stays on disk until the transcript is in.
-        val entry = pipeline.savePending(audio, target, startedAt, durationMs)
         retryableEntryId = null
-        processingEntryId = entry.id
         processingJob = scope.launch {
             val stopStarted = System.currentTimeMillis()
-            val streamed: SttResult? = stream?.let { active ->
-                val result = runCatching { active.finish() }
-                    .onFailure { Log.w(TAG, "Streaming transcription failed, falling back: ${it.message}") }
-                    .getOrNull()
-                // Frames were dropped while the socket caught up: the saved WAV is the complete take.
-                if (result != null && active.droppedAudio && pipeline.hasOneShot()) {
-                    Log.w(TAG, "Stream dropped audio; transcribing the saved recording instead")
-                    null
-                } else {
-                    result
+            // Flush Deepgram immediately in parallel with persisting the pending history entry.
+            val streamedDeferred = async(Dispatchers.IO) {
+                stream?.let { active ->
+                    val result = runCatching { active.finish() }
+                        .onFailure { Log.w(TAG, "Streaming transcription failed, falling back: ${it.message}") }
+                        .getOrNull()
+                    // Frames were dropped while the socket caught up: the saved WAV is the complete take.
+                    if (result != null && active.droppedAudio && pipeline.hasOneShot()) {
+                        Log.w(TAG, "Stream dropped audio; transcribing the saved recording instead")
+                        null
+                    } else {
+                        result
+                    }
                 }
             }
+            val entry = withContext(Dispatchers.IO) { pipeline.savePending(audio, target, startedAt, durationMs) }
+            processingEntryId = entry.id
+            val streamed: SttResult? = streamedDeferred.await()
             val streamedMs = if (streamed != null) System.currentTimeMillis() - stopStarted else 0L
             val transcript = try {
                 pipeline.process(

@@ -2,19 +2,13 @@ package com.nodaysidle.reverseuno.dictation
 
 import android.content.Context
 import android.util.Log
-import com.nodaysidle.reverseuno.cleanup.PromptContext
-import com.nodaysidle.reverseuno.cleanup.formatTranscript
-import com.nodaysidle.reverseuno.cleanup.needsFormatting
 import com.nodaysidle.reverseuno.core.DictationEntry
 import com.nodaysidle.reverseuno.core.EntryStatus
 import com.nodaysidle.reverseuno.core.Store
-import com.nodaysidle.reverseuno.core.WRONG_LANGUAGE
 import com.nodaysidle.reverseuno.core.applyDictionary
 import com.nodaysidle.reverseuno.core.expandSnippet
 import com.nodaysidle.reverseuno.core.preferredSpellings
 import com.nodaysidle.reverseuno.core.sanitizeTranscript
-import com.nodaysidle.reverseuno.core.strictRetryLanguage
-import com.nodaysidle.reverseuno.core.violatesAllowedLanguages
 import com.nodaysidle.reverseuno.core.wordCount
 import com.nodaysidle.reverseuno.security.KeyVault
 import com.nodaysidle.reverseuno.security.Secret
@@ -32,17 +26,15 @@ data class Target(val appClass: String = "", val appTitle: String = "")
 /** A finished transcript ready to insert, before it is saved to history. */
 data class Transcript(
     val text: String,
-    val raw: String,
     val language: String,
     val asrMs: Long,
-    val formatMs: Long,
     val provider: String = "deepgram",
     val model: String = "nova-3",
 )
 
 /**
  * The dictation pipeline:
- * transcribe (Deepgram Nova-3 streaming, or direct Deepgram REST on retry/fallback) -> sanitize -> snippet or format -> dictionary spellings.
+ * transcribe (Deepgram Nova-3 streaming, or direct Deepgram REST on retry/fallback) -> sanitize -> snippet -> dictionary spellings.
  */
 class Pipeline(private val context: Context) {
 
@@ -76,7 +68,7 @@ class Pipeline(private val context: Context) {
             asrMs = streamedMs
         } else {
             val asrStarted = System.currentTimeMillis()
-            val compressed = if (settings.stt.compressUploads) compressForUpload(audio) else null
+            val compressed = if (settings.stt.compressUploads && audio.length() > OPUS_MIN_WAV_BYTES) compressForUpload(audio) else null
             try {
                 stt = DeepgramRestClient(deepgramKey, model)
                     .transcribe(audio, settings.stt.language, keyterms, compressed)
@@ -85,56 +77,18 @@ class Pipeline(private val context: Context) {
             }
             asrMs = System.currentTimeMillis() - asrStarted
         }
-        val allowed = settings.stt.allowedLanguages
-        if (violatesAllowedLanguages(stt.text, stt.language, allowed)) {
-            val forced = strictRetryLanguage(settings.stt.language, allowed)
-            val sameCall = streamed == null && settings.stt.language.equals(forced, ignoreCase = true)
-            if (deepgramKey.isBlank() || sameCall) error(WRONG_LANGUAGE)
-            Log.w(TAG, "Transcript outside the allowed languages; retrying with Deepgram $model lang=$forced")
-            val retryStarted = System.currentTimeMillis()
-            val compressed = if (settings.stt.compressUploads) compressForUpload(audio) else null
-            try {
-                stt = DeepgramRestClient(deepgramKey, model).transcribe(audio, forced, keyterms, compressed)
-            } finally {
-                compressed?.delete()
-            }
-            asrMs += System.currentTimeMillis() - retryStarted
-            if (violatesAllowedLanguages(stt.text, stt.language, allowed)) error(WRONG_LANGUAGE)
-        }
         val raw = sanitizeTranscript(stt.text).ifEmpty { return null }
 
-        var final = raw
-        var formatMs = 0L
-        var cleanedBy = "none"
         val (expanded, snippet) = expandSnippet(raw, data.snippets)
-        if (snippet != null) {
-            final = expanded
+        val final = if (snippet != null) {
             Store.updateSnippet(snippet.id) { it.copy(uses = it.uses + 1) }
-        } else if (needsFormatting(raw, settings)) {
-            val result = formatTranscript(
-                raw,
-                settings,
-                KeyVault.get(context, Secret.DEEPSEEK),
-                PromptContext(
-                    cleanup = settings.format.cleanup,
-                    style = settings.format.style,
-                    customInstructions = settings.format.customInstructions,
-                    dictionary = preferredSpellings(data.dictionary, 80),
-                    appClass = target.appClass,
-                    appTitle = target.appTitle,
-                    includeAppContext = settings.format.includeAppContext,
-                ),
-            )
-            if (result.error != null) Log.w(TAG, "formatting fell back (used ${result.provider ?: "raw"}): ${result.error}")
-            final = result.text.ifEmpty { raw }
-            formatMs = result.latencyMs
-            cleanedBy = result.provider ?: "raw"
+            sanitizeTranscript(applyDictionary(expanded, data.dictionary)).ifEmpty { expanded }
+        } else {
+            sanitizeTranscript(applyDictionary(raw, data.dictionary)).ifEmpty { raw }
         }
-        final = sanitizeTranscript(applyDictionary(final, data.dictionary)).ifEmpty { raw }
-        if (snippet != null) cleanedBy = "snippet"
         // Timings and sizes only: transcripts never go to logcat.
-        Log.i(TAG, "dictation provider=$provider model=$model lang=${stt.language} asrMs=$asrMs cleanup=$cleanedBy formatMs=$formatMs words=${wordCount(final)} audioKb=${audio.length() / 1024}")
-        return Transcript(final, raw, stt.language, asrMs, formatMs, provider, model)
+        Log.i(TAG, "dictation provider=$provider model=$model lang=${stt.language} asrMs=$asrMs words=${wordCount(final)} audioKb=${audio.length() / 1024}")
+        return Transcript(final, stt.language, asrMs, provider, model)
     }
 
     /** Text as it should be typed: with the trailing space desktop adds between dictations. */
@@ -153,19 +107,15 @@ class Pipeline(private val context: Context) {
         val entry = DictationEntry(
             id = UUID.randomUUID().toString(),
             text = "",
-            rawText = "",
             createdAt = startedAt,
             provider = "",
             model = "",
             language = settings.stt.language,
             durationMs = durationMs,
             asrMs = 0,
-            formatMs = 0,
             totalMs = 0,
             appClass = target.appClass,
             appTitle = target.appTitle,
-            cleanup = settings.format.cleanup,
-            style = settings.format.style,
             inserted = false,
             wordCount = 0,
             status = EntryStatus.PENDING,
@@ -183,12 +133,10 @@ class Pipeline(private val context: Context) {
             audioPath = it.audioPath
             it.copy(
                 text = transcript.text,
-                rawText = transcript.raw,
                 provider = transcript.provider,
                 model = transcript.model.ifBlank { settings.stt.model },
                 language = transcript.language,
                 asrMs = transcript.asrMs,
-                formatMs = transcript.formatMs,
                 totalMs = System.currentTimeMillis() - startedAt,
                 inserted = inserted,
                 error = error,
@@ -228,6 +176,8 @@ class Pipeline(private val context: Context) {
 
     private companion object {
         const val TAG = "Pipeline"
+        /** Skip Opus encoding overhead (~180 ms) on short clips (< 8 s); raw WAV uploads faster. */
+        const val OPUS_MIN_WAV_BYTES = 256 * 1024L
     }
 }
 

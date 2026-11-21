@@ -25,10 +25,11 @@ class MigrateTest {
         assertEquals(STORE_VERSION, migrated.version)
     }
 
-    @Test fun v3StoreWithOpenRouterSlugMigratesToNova3() {
-        val old = StoreData(version = 3, settings = Settings(stt = SttSettings(model = "openai/gpt-4o-mini-transcribe")))
+    @Test fun v3StoreWithOpenRouterSlugMigratesToNova3AndEnglish() {
+        val old = StoreData(version = 3, settings = Settings(stt = SttSettings(model = "openai/gpt-4o-mini-transcribe", language = "auto")))
         val migrated = migrate(old)
         assertEquals("nova-3", migrated.settings.stt.model)
+        assertEquals("en", migrated.settings.stt.language)
         assertEquals(STORE_VERSION, migrated.version)
     }
 }

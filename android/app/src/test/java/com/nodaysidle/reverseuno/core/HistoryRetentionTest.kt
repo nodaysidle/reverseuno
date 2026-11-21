@@ -10,9 +10,9 @@ class HistoryRetentionTest {
     private val now = 1_000 * day
 
     private fun entry(id: String, ageDays: Long, status: EntryStatus = EntryStatus.DONE) = DictationEntry(
-        id = id, text = "", rawText = "", createdAt = now - ageDays * day, provider = "", model = "", language = "auto",
-        durationMs = 0, asrMs = 0, formatMs = 0, totalMs = 0, appClass = "", appTitle = "",
-        cleanup = CleanupLevel.LIGHT, style = WritingStyle.CASUAL, inserted = true, wordCount = 0, status = status,
+        id = id, text = "", createdAt = now - ageDays * day, provider = "", model = "", language = "auto",
+        durationMs = 0, asrMs = 0, totalMs = 0, appClass = "", appTitle = "",
+        inserted = true, wordCount = 0, status = status,
     )
 
     @Test fun foreverKeepsEverything() {

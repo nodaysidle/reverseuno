@@ -31,7 +31,6 @@ import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.Pencil
 import com.composables.icons.lucide.Plus
 import com.composables.icons.lucide.Quote
-import com.composables.icons.lucide.Sparkles
 import com.composables.icons.lucide.Trash2
 import com.composables.icons.lucide.X
 import com.nodaysidle.reverseuno.core.Snippet
@@ -87,9 +86,9 @@ fun SnippetsScreen(data: StoreData) {
                     style = Type.hint, color = Tokens.muted,
                 )
                 Spacer(Modifier.height(12.dp))
-                Input(trigger, { trigger = it.take(80) }, "Trigger (e.g. my calendar link)", Modifier.fillMaxWidth())
+                Input(trigger, { trigger = it.take(80) }, "Spoken trigger", Modifier.fillMaxWidth())
                 Spacer(Modifier.height(8.dp))
-                Input(content, { content = it }, "Content to insert…", Modifier.fillMaxWidth(), singleLine = false, minLines = 3)
+                Input(content, { content = it }, "Text to insert", Modifier.fillMaxWidth(), singleLine = false, minLines = 3)
                 Spacer(Modifier.height(12.dp))
                 Btn(
                     "Add snippet",
@@ -112,13 +111,7 @@ fun SnippetsScreen(data: StoreData) {
                     EmptyState(
                         Lucide.Quote,
                         "No snippets yet",
-                        "Save the blocks you retype. Say the trigger during dictation and the block is inserted instead of the words.",
-                        action = {
-                            Btn("Use an example", onClick = {
-                                trigger = "sign off"
-                                content = "Thanks, talk soon.\n\nArch"
-                            }, size = BtnSize.SM, icon = Lucide.Sparkles)
-                        },
+                        "Save blocks you retype often. Say the trigger during dictation to insert the full block.",
                     )
                 }
             }
@@ -188,7 +181,7 @@ fun SnippetsScreen(data: StoreData) {
 
         item {
             Text(
-                "Snippets are matched after the transcript is cleaned, before formatting. Say the trigger as its own phrase.",
+                "Snippets are matched on the exact spoken phrase, ignoring case and trailing punctuation.",
                 style = Type.hint.copy(fontSize = 10.5.sp, lineHeight = 17.sp),
                 color = Tokens.muted,
                 modifier = Modifier.padding(top = 8.dp),

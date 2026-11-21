@@ -1,6 +1,6 @@
 # HANDOFF
 
-Desktop app (Linux: Electron engine + Qt windows). The Android app is a separate thing; its handoff is `HANDOFF_ANDROID_APK.md`.
+Desktop app (Linux: Electron engine + Qt windows). The Android app is a separate thing; its handoff is `HANDOFF_ANDROID_APK.md` (updated 2026-11-21 for `v0.2.8`: Deepgram Nova-3 EU English-only, TLS 1.2 + FGS keep-alive + WifiLock, cleanup/Style/OpenRouter/xAI removed, floating-bubble latency down to 81 ms on Mi 10T).
 
 ## Goal
 reverseuno: the Hub and Overlay are native Qt windows (`qt/`, binary `reverseuno-ui`). A windowless Electron engine runs behind them (capture, speech-to-text, formatting, paste, store). Autopaste must keep working.

@@ -8,9 +8,9 @@ import org.junit.Test
 
 class HistoryTest {
     private fun entry(id: String, status: EntryStatus = EntryStatus.DONE, audio: String? = null) = DictationEntry(
-        id = id, text = if (status == EntryStatus.DONE) "text $id" else "", rawText = "", createdAt = 0L,
-        provider = "", model = "", language = "auto", durationMs = 0, asrMs = 0, formatMs = 0, totalMs = 0,
-        appClass = "", appTitle = "", cleanup = CleanupLevel.LIGHT, style = WritingStyle.CASUAL,
+        id = id, text = if (status == EntryStatus.DONE) "text $id" else "", createdAt = 0L,
+        provider = "", model = "", language = "auto", durationMs = 0, asrMs = 0, totalMs = 0,
+        appClass = "", appTitle = "",
         inserted = status == EntryStatus.DONE, wordCount = 0, status = status, audioPath = audio,
     )
 

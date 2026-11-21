@@ -178,7 +178,7 @@ fun HomeScreen(data: StoreData, navigate: (Page) -> Unit) {
         val shown = filterHistory(data.history, activeFilter)
         if (needle.isEmpty()) shown
         else shown.filter {
-            "${it.text} ${it.rawText} ${it.appClass} ${it.appTitle} ${AppNames.of(context, it.appClass)}".lowercase().contains(needle)
+            "${it.text} ${it.appClass} ${it.appTitle} ${AppNames.of(context, it.appClass)}".lowercase().contains(needle)
         }
     }
     val groups = remember(filtered) { filtered.groupBy { dayOf(it.createdAt) }.entries.toList() }
@@ -497,7 +497,7 @@ private fun HistoryRow(entry: DictationEntry, onOpen: () -> Unit) {
                     EntryStatus.PENDING -> Chip("pending")
                     EntryStatus.FAILED -> Chip(if (entry.attempts > 1) "failed ×${entry.attempts}" else "failed", bg = Tokens.redSoft, fg = Tokens.red)
                     EntryStatus.DONE -> {
-                        Chip(entry.cleanup.label)
+                        if (entry.asrMs > 0) Chip("${entry.asrMs} ms", mono = true)
                         if (entry.editedText != null) Chip("edited", bg = Tokens.lavender.copy(alpha = 0.18f), fg = Tokens.ink)
                         if (entry.error != null) Chip("failed", bg = Tokens.redSoft, fg = Tokens.red)
                         else if (!entry.inserted) Chip("saved only")
@@ -535,7 +535,6 @@ private fun EntrySheet(entry: DictationEntry, suggestions: List<Suggestion>, onC
     var editing by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var text by remember { mutableStateOf(entry.text) }
-    var showRaw by remember { mutableStateOf(false) }
     ModalBottomSheet(onDismissRequest = onClose, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = Tokens.paper2) {
         Column(Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = Gutter).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.Top) {
@@ -587,27 +586,13 @@ private fun EntrySheet(entry: DictationEntry, suggestions: List<Suggestion>, onC
                 }
             }
 
-            Card(Modifier.fillMaxWidth(), flat = true, padding = PaddingValues(14.dp), onClick = { showRaw = !showRaw }) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (showRaw) "Hide raw transcript" else "Show raw transcript", style = Type.label, color = Tokens.ink, modifier = Modifier.weight(1f))
-                    Chip(if (showRaw) "raw" else "polished")
-                }
-                if (showRaw) {
-                    Spacer(Modifier.height(10.dp))
-                    Text(entry.rawText, style = Type.sub, color = Tokens.inkSoft)
-                }
-            }
-
             Column {
                 listOf(
                     "App" to appLabel(context, entry),
                     "Spoken" to duration(entry.durationMs),
                     "Words" to "${entry.wordCount}",
                     "Language" to entry.language.ifEmpty { "auto" },
-                    "Cleanup" to entry.cleanup.label,
-                    "Style" to entry.style.label,
-                    "ASR" to if (entry.asrMs > 0) "${entry.asrMs} ms" else "n/a",
-                    "Polish" to if (entry.formatMs > 0) "${entry.formatMs} ms" else "n/a",
+                    "ASR" to if (entry.asrMs > 0) "${entry.asrMs} ms" else "—",
                     "Model" to entry.model.ifEmpty { entry.provider },
                     "Total" to duration(entry.totalMs),
                 ).forEach { (k, v) ->

@@ -17,15 +17,11 @@ data class SttResult(val text: String, val language: String)
 private const val MAX_REST_KEYTERMS = 50
 
 internal fun deepgramRestUrl(model: String, language: String, keyterms: List<String>): String {
-    val builder = "https://api.deepgram.com/v1/listen".toHttpUrl().newBuilder()
+    val builder = "https://api.eu.deepgram.com/v1/listen".toHttpUrl().newBuilder()
         .addQueryParameter("model", model)
         .addQueryParameter("smart_format", "true")
         .addQueryParameter("punctuate", "true")
-    if (Regex("^[a-z]{2}$", RegexOption.IGNORE_CASE).matches(language)) {
-        builder.addQueryParameter("language", language.lowercase())
-    } else {
-        builder.addQueryParameter("language", "multi")
-    }
+        .addQueryParameter("language", "en")
     keyterms.asSequence()
         .map { it.trim() }
         .filter { it.isNotEmpty() }
@@ -72,7 +68,15 @@ class DeepgramRestClient(
     private fun sendWithRetry(url: String, file: File): Pair<Int, String> {
         var attempt = 0
         while (true) {
-            val (code, payload, retryAfterSeconds) = sendOnce(url, file)
+            val result = try {
+                sendOnce(url, file)
+            } catch (e: java.io.InterruptedIOException) {
+                if (attempt >= RETRY_MAX_ATTEMPTS) throw e
+                attempt++
+                Log.w(TAG, "Deepgram REST timed out; retrying ($attempt/$RETRY_MAX_ATTEMPTS)")
+                continue
+            }
+            val (code, payload, retryAfterSeconds) = result
             val decision = retryDecision(code, attempt, retryAfterSeconds)
             if (!decision.retry) return code to payload
             attempt++
@@ -108,10 +112,13 @@ class DeepgramRestClient(
         private const val TAG = "DeepgramRest"
 
         val HTTP: OkHttpClient = OkHttpClient.Builder()
-            .connectTimeout(8, TimeUnit.SECONDS)
-            .readTimeout(45, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
-            .callTimeout(60, TimeUnit.SECONDS)
+            .dns(DeepgramStreamingClient.IPV4_FIRST_DNS)
+            .connectionSpecs(DeepgramStreamingClient.TLS_1_2_SPEC)
+            .protocols(listOf(okhttp3.Protocol.HTTP_1_1))
+            .connectTimeout(3, TimeUnit.SECONDS)
+            .readTimeout(6, TimeUnit.SECONDS)
+            .writeTimeout(6, TimeUnit.SECONDS)
+            .callTimeout(10, TimeUnit.SECONDS)
             .build()
     }
 }

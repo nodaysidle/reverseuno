@@ -30,11 +30,15 @@ class StreamBreakTest {
         DeepgramStreamingClient("test-key", "en", emptyList(), connect = { _, l -> listener = l; fake })
 
     @Test
-    fun deepgramNormalStopKeepsStreamedText() = runBlocking {
+    fun deepgramNormalStopReturnsImmediatelyOnFromFinalize() = runBlocking {
         lateinit var fake: FakeSocket
-        fake = FakeSocket(onText = { if ("CloseStream" in it) listener.onClosed(fake, 1000, "") })
+        fake = FakeSocket(onText = {
+            if ("Finalize" in it) listener.onMessage(
+                fake,
+                """{"type":"Results","is_final":true,"from_finalize":true,"channel":{"alternatives":[{"transcript":"hello world"}]}}""",
+            )
+        })
         val client = deepgram(fake)
-        listener.onMessage(fake, FINAL_HELLO_WORLD)
         assertEquals("hello world", client.finish()?.text)
         assertFalse(client.droppedAudio)
     }

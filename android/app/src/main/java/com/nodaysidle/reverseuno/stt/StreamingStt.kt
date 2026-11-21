@@ -24,7 +24,7 @@ interface StreamingStt {
 }
 
 /**
- * Frames held while the socket connects. Sized for the full 5-minute utterance at 100 ms per
+ * Frames held while the socket connects. Sized for the full 5-minute utterance at 50 ms per
  * frame (about 10 MB worst case), so a slow handshake never costs the start of the dictation.
  */
-internal const val MAX_PENDING_FRAMES = 3_200
+internal const val MAX_PENDING_FRAMES = 6_400

@@ -17,10 +17,11 @@ class StreamingParseTest {
         assertFalse(interim.isFinal)
 
         val final = parseDeepgramMessage(
-            """{"type":"Results","is_final":true,"channel":{"detected_language":"en","alternatives":[{"transcript":"hello world"}]}}""",
+            """{"type":"Results","is_final":true,"from_finalize":true,"channel":{"detected_language":"en","alternatives":[{"transcript":"hello world"}]}}""",
         )
         final as DeepgramEvent.Transcript
         assertTrue(final.isFinal)
+        assertTrue(final.fromFinalize)
         assertEquals("en", final.language)
     }
 
@@ -36,12 +37,15 @@ class StreamingParseTest {
     @Test
     fun deepgramUrlCarriesStreamingContract() {
         val url = deepgramRequestUrl("nova-3", "en", listOf("reverseuno", "Kurek", "reverseuno")).toString()
-        assertTrue(url.startsWith("wss://api.deepgram.com/v1/listen?"))
+        assertTrue(url.startsWith("wss://api.eu.deepgram.com/v1/listen?"))
         assertTrue(url.contains("model=nova-3"))
         assertTrue(url.contains("encoding=linear16"))
         assertTrue(url.contains("sample_rate=16000"))
         assertTrue(url.contains("channels=1"))
         assertTrue(url.contains("interim_results=true"))
+        assertTrue(url.contains("no_delay=true"))
+        assertTrue(url.contains("endpointing=100"))
+        assertFalse(url.contains("utterance_end_ms"))
         assertTrue(url.contains("language=en"))
         assertFalse(url.contains("detect_language"))
         assertTrue(url.contains("keyterm=reverseuno"))
@@ -49,25 +53,22 @@ class StreamingParseTest {
         assertEquals(1, Regex("keyterm=reverseuno").findAll(url).count())
 
         val auto = deepgramRequestUrl("nova-3", "auto", emptyList()).toString()
-        assertTrue(auto.contains("language=multi"))
+        assertTrue(auto.contains("language=en"))
         assertFalse(auto.contains("detect_language"))
     }
 
     @Test
     fun deepgramRestUrlAndResponseParsing() {
-        val url = deepgramRestUrl("nova-3", "sl", listOf("reverseuno", "reverseuno"))
-        assertTrue(url.startsWith("https://api.deepgram.com/v1/listen?"))
+        val url = deepgramRestUrl("nova-3", "en", listOf("reverseuno", "reverseuno"))
+        assertTrue(url.startsWith("https://api.eu.deepgram.com/v1/listen?"))
         assertTrue(url.contains("model=nova-3"))
-        assertTrue(url.contains("language=sl"))
+        assertTrue(url.contains("language=en"))
         assertTrue(url.contains("smart_format=true"))
         assertEquals(1, Regex("keyterm=reverseuno").findAll(url).count())
 
-        val auto = deepgramRestUrl("nova-3", "auto", emptyList())
-        assertTrue(auto.contains("language=multi"))
-
         val parsed = parseDeepgramRestResponse(
             """{"results":{"channels":[{"detected_language":"en","alternatives":[{"transcript":" hello world "}]}]}}""",
-            "auto",
+            "en",
         )
         assertEquals(SttResult("hello world", "en"), parsed)
     }

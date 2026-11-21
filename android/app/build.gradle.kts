@@ -15,8 +15,8 @@ android {
         applicationId = "com.nodaysidle.reverseuno"
         minSdk = 31
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.2.1"
+        versionCode = 10
+        versionName = "0.2.8"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

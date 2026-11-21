@@ -14,7 +14,6 @@ data class Stats(
     val days: Map<LocalDate, Int> = emptyMap(),
     val apps: Map<String, Int> = emptyMap(),
     val corrections: Int = 0,
-    val refined: Int = 0,
 )
 
 fun dayOf(millis: Long, zone: ZoneId = ZoneId.systemDefault()): LocalDate =
@@ -25,7 +24,6 @@ fun statsFromHistory(history: List<DictationEntry>): Stats {
     var count = 0
     var speaking = 0L
     var corrections = 0
-    var refined = 0
     val days = HashMap<LocalDate, Int>()
     val apps = HashMap<String, Int>()
     for (entry in history) {
@@ -33,12 +31,11 @@ fun statsFromHistory(history: List<DictationEntry>): Stats {
         words += entry.wordCount
         count += 1
         speaking += entry.durationMs
-        if (entry.cleanup != CleanupLevel.NONE) refined += 1
         corrections += entry.editDistance ?: 0
         days.merge(dayOf(entry.createdAt), entry.wordCount, Int::plus)
         apps.merge(entry.appClass.ifEmpty { "unknown" }, 1, Int::plus)
     }
-    return Stats(words, count, speaking, days, apps, corrections, refined)
+    return Stats(words, count, speaking, days, apps, corrections)
 }
 
 fun currentStreak(days: Map<LocalDate, Int>, today: LocalDate = LocalDate.now()): Int {

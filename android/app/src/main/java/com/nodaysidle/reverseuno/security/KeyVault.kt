@@ -9,7 +9,6 @@ import androidx.security.crypto.MasterKey
 
 enum class Secret(val prefKey: String, val label: String) {
     DEEPGRAM("deepgram_api_key", "Deepgram"),
-    DEEPSEEK("deepseek_api_key", "DeepSeek"),
 }
 
 /** API keys live only here: EncryptedSharedPreferences backed by an Android Keystore master key. */

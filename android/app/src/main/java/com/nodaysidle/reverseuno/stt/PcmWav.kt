@@ -10,8 +10,8 @@ internal const val WAV_BITS_PER_SAMPLE = 16
 internal const val WAV_HEADER_BYTES = 44
 internal const val PCM_BYTES_PER_MS = WAV_SAMPLE_RATE / 1000 * (WAV_BITS_PER_SAMPLE / 8) * WAV_CHANNELS
 
-/** One 100 ms frame for low-latency live streaming (3,200 bytes at 16 kHz PCM16). */
-internal const val PCM_CHUNK_BYTES = PCM_BYTES_PER_MS * 100
+/** One 50 ms frame for minimum-latency live streaming (1,600 bytes at 16 kHz PCM16). */
+internal const val PCM_CHUNK_BYTES = PCM_BYTES_PER_MS * 50
 
 /** Canonical 44-byte RIFF/WAVE header for [dataBytes] of PCM payload. */
 internal fun wavHeader(dataBytes: Int): ByteArray {

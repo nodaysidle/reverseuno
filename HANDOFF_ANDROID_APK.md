@@ -1,11 +1,32 @@
 # HANDOFF: Android APK
 
 ## What this is
-The Android app of reverseuno, in `android/` (Kotlin, Jetpack Compose, minSdk 31, targetSdk 36, package `com.nodaysidle.reverseuno`, debug builds `.debug`). A floating pill (an accessibility overlay) records, transcribes and inserts into the focused field. The companion app has History, Dictionary, Snippets, Style and Settings.
+The Android app of reverseuno, in `android/` (Kotlin, Jetpack Compose, minSdk 31, targetSdk 36, package `com.nodaysidle.reverseuno`, debug builds `.debug`). A floating pill (an accessibility overlay backed by `BubbleService` as a foreground keep-alive) streams live to Deepgram Nova-3 (EU Frankfurt, English-only) and inserts into the focused field. The companion app has 4 tabs: Home, Dictionary, Snippets, and Settings.
 
-**Version: 0.2.0, versionCode 2** (`android/app/build.gradle.kts`).
+**Version: 0.2.8, versionCode 10** (`android/app/build.gradle.kts`, signed release APK 3.5 MB).
 
 The Linux desktop app in `src/` and `qt/` is a separate thing with its own version (`package.json` 0.1.0) and its own handoff, `HANDOFF.md`. Read `android/README.md` first for build and install.
+
+## Latest changes (2026-11-21 — v0.2.1 to v0.2.8)
+Goal: eliminate multi-second dictation latency (6–47 s on the Mi 10T), standardize on the single fastest STT provider, remove LLM cleanup, and strip all UI placeholders.
+
+### Root causes found and fixed on Xiaomi Mi 10T (`a2f3cdaa`, MIUI 14 / Android 12)
+1. **Background network throttling (`BFGS` vs `FGS`):** `BubbleService` was not running while `VoiceAccessibilityService` hosted the bubble, leaving the process at bound-background priority (`BFGS`). In-app `Test` ran at 210 ms while floating-bubble dictations stalled for 8–10 s. Fixed by starting `BubbleService` (`isForeground=true`) from `BubbleRuntime.hostInAccessibility()` and acquiring a `WIFI_MODE_FULL_LOW_LATENCY` lock in `RecordingGuards` during recording/transcription.
+2. **Android 12 Conscrypt TLS 1.3 handshake stalls (8–15 s):** OkHttp's TLS 1.3 `ClientHello` (517 bytes) stalled in `Send-Q` on the Mi 10T's Wi-Fi while `curl` completed in 156 ms. Fixed by pinning Deepgram OkHttp clients to `TlsVersion.TLS_1_2` + IPv4-first `Dns` (dropped handshakes from 8–15 s to 146–252 ms).
+3. **US vs EU endpoint:** Switched Deepgram streaming, REST, and key-check endpoints from `api.deepgram.com` (Virginia) to `api.eu.deepgram.com` (Frankfurt) — 71 ms connect / 58 ms stop-to-final from Europe.
+4. **Streaming flush & frame size:** Reduced PCM frames from 250 ms to 50 ms (`1,600 B`, `MAX_PENDING_FRAMES = 6,400`), added `no_delay=true` and `endpointing=100`, dropped unused `utterance_end_ms=1000`, sent both `Finalize` and `CloseStream` in `finish()` (returning immediately on `from_finalize: true` and cancelling timed-out sockets immediately), and parallelized `active.finish()` with `savePending()` on `Dispatchers.IO`.
+5. **In-app streaming:** Wired `DeepgramStreamingClient` into `HubDictation` (previously used one-shot REST + Opus).
+6. **Provider & cleanup simplification:**
+   - Removed OpenRouter STT (`OpenRouterSttClient.kt`, model picker, `Secret.OPENROUTER`), xAI STT (`XaiStreamingClient.kt`, `Secret.XAI`), Anthropic cleanup (`AnthropicCleaner.kt`, `Secret.ANTHROPIC`, `com.anthropic:anthropic-java` — shrunk APK from 30 MB to 3.5 MB), and DeepSeek cleanup (`DeepSeekCleaner.kt`, `Formatter.kt`, `Secret.DEEPSEEK`, `FormatSettings`, `StyleScreen.kt`).
+   - Added direct `DeepgramRestClient.kt` for History retries and dropped-stream recovery (skipping Opus encoding on short < 8 s clips; 3 s connect / 6 s read timeouts with automatic timeout retry).
+   - Locked STT to monolingual English (`language=en`) for higher Nova-3 accuracy and removed `LanguageGuard` / language pickers (`STORE_VERSION = 5` migrates legacy stores automatically).
+7. **UI/UX placeholder cleanup:** Removed the `Style` tab (4-tab bar: Home, Dictionary, Snippets, Settings), replaced the History cleanup chip with the real `asrMs` latency chip, and removed all `e.g.` / `"Use an example"` / `"Live example"` placeholders across `SnippetsScreen`, `DictionaryScreen`, `SettingsScreen`, and `HomeScreen`.
+
+### Verified on phone (2026-11-21)
+- Xiaomi Mi 10T (`a2f3cdaa`, 5 GHz Wi-Fi 6 `MrKill3r`), `v0.2.8` (`versionCode=10`) installed via `adb install -r`.
+- Both `VoiceAccessibilityService` and `BubbleService` (`isForeground=true`) confirmed active.
+- Live floating-bubble dictations in Google Keep (4 s and 5 s utterances) transcribed and inserted in **81 ms** (down from 47,783 ms).
+- All Android unit tests (`:app:testDebugUnitTest`) and signed release build (`:app:assembleRelease`) pass.
 
 ## Branches and versions (2026-11-14)
 - `master` is still the pre-Typeless-parity state (Android 0.1.0). Nothing below is merged and no PR is open.

@@ -6,46 +6,14 @@ import kotlinx.serialization.Serializable
 // Mirrors src/shared/types.ts, minus the desktop-only parts (hotkey, paste keys, overlay pill, tray).
 
 @Serializable
-enum class CleanupLevel(val label: String, val blurb: String) {
-    @SerialName("none") NONE("None", "Exactly what you said, including the ums and false starts."),
-    @SerialName("light") LIGHT("Light", "Filler words and obvious slips removed. Your wording stays."),
-    @SerialName("medium") MEDIUM("Medium", "Grammar and repetition tightened, meaning and voice kept."),
-    @SerialName("high") HIGH("High", "Rewritten for brevity and polish. Every fact preserved."),
-}
-
-@Serializable
-enum class WritingStyle(val label: String, val blurb: String) {
-    @SerialName("formal") FORMAL("Formal", "Composed, complete sentences."),
-    @SerialName("casual") CASUAL("Casual", "Natural, contractions welcome."),
-    @SerialName("very-casual") VERY_CASUAL("Very casual", "Loose and everyday."),
-    @SerialName("excited") EXCITED("Excited", "Upbeat, never shouty."),
-    @SerialName("genz") GENZ("Gen Z", "Current, never cringe."),
-}
-
-@Serializable
 data class SttSettings(
     /** Deepgram model. Nova-3 streams live over WebSocket and handles direct REST retries. */
     val model: String = "nova-3",
-    /** "auto" sends language=multi so Deepgram detects and code-switches per dictation. */
-    val language: String = "auto",
+    /** Locked to English for maximum Nova-3 monolingual accuracy and speed. */
+    val language: String = "en",
     val keytermLimit: Int = 15,
     /** Fallback/retry uploads go as Ogg/Opus (~8x smaller than WAV); a rejected or failed encode sends the WAV. */
     val compressUploads: Boolean = true,
-    /** Languages the user dictates in (two-letter codes). Empty = no check. A transcript outside them is rejected. */
-    val allowedLanguages: List<String> = emptyList(),
-)
-
-@Serializable
-data class FormatSettings(
-    val enabled: Boolean = true,
-    /** Cleanup model through the direct DeepSeek API. */
-    val deepseekModel: String = "deepseek-flash",
-    val cleanup: CleanupLevel = CleanupLevel.LIGHT,
-    val style: WritingStyle = WritingStyle.CASUAL,
-    val customInstructions: String = "",
-    // Desktop uses 2.5 s; mobile networks need more headroom.
-    val timeoutMs: Int = 6000,
-    val includeAppContext: Boolean = true,
 )
 
 @Serializable
@@ -71,7 +39,6 @@ data class AppearanceSettings(
 @Serializable
 data class Settings(
     val stt: SttSettings = SttSettings(),
-    val format: FormatSettings = FormatSettings(),
     val insert: InsertSettings = InsertSettings(),
     val bubble: BubbleSettings = BubbleSettings(),
     val history: HistorySettings = HistorySettings(),
@@ -92,21 +59,17 @@ enum class EntryStatus {
 data class DictationEntry(
     val id: String,
     val text: String,
-    val rawText: String,
     val createdAt: Long,
     val provider: String,
     val model: String,
     val language: String,
     val durationMs: Long,
     val asrMs: Long,
-    val formatMs: Long,
     val totalMs: Long,
     /** Package name of the app the text went into; empty when dictated inside reverseuno. */
     val appClass: String,
     /** The app's user-facing label. */
     val appTitle: String,
-    val cleanup: CleanupLevel,
-    val style: WritingStyle,
     val inserted: Boolean,
     val error: String? = null,
     val wordCount: Int,
@@ -158,8 +121,8 @@ data class Suggestion(
     val source: String = "edit",
 )
 
-/** v2 sends 15 keyterms instead of 50; v3 adds history status and kept audio; v4 normalizes STT to Deepgram nova-3. See [migrate]. */
-const val STORE_VERSION = 4
+/** v2: 15 keyterms; v3: history status; v4: nova-3; v5: English-only. See [migrate]. */
+const val STORE_VERSION = 5
 
 /**
  * Moves an older store off defaults that changed. Past ~15 keyterms, sound-alike developer
@@ -171,6 +134,8 @@ fun migrate(data: StoreData): StoreData {
     var stt = if (data.version < 2 && data.settings.stt.keytermLimit == 50) data.settings.stt.copy(keytermLimit = SttSettings().keytermLimit) else data.settings.stt
     // v3 -> v4: old OpenRouter model slugs (e.g. "openai/gpt-4o-mini-transcribe") reset to Deepgram nova-3.
     if (data.version < 4 && ('/' in stt.model || stt.model.isBlank())) stt = stt.copy(model = SttSettings().model)
+    // v4 -> v5: lock language to English.
+    if (data.version < 5) stt = stt.copy(language = "en")
     return data.copy(version = STORE_VERSION, settings = data.settings.copy(stt = stt))
 }
 
@@ -183,22 +148,5 @@ data class StoreData(
     val dictionary: List<DictionaryEntry> = emptyList(),
     val snippets: List<Snippet> = emptyList(),
     val suggestions: List<Suggestion> = emptyList(),
-)
-
-data class LanguageOption(val value: String, val label: String)
-
-val LANGUAGE_OPTIONS = listOf(
-    LanguageOption("auto", "Auto-detect"),
-    LanguageOption("en", "English"),
-    LanguageOption("sl", "Slovenian"),
-    LanguageOption("it", "Italian"),
-    LanguageOption("de", "German"),
-    LanguageOption("es", "Spanish"),
-    LanguageOption("fr", "French"),
-    LanguageOption("pt", "Portuguese"),
-    LanguageOption("nl", "Dutch"),
-    LanguageOption("ja", "Japanese"),
-    LanguageOption("ko", "Korean"),
-    LanguageOption("zh", "Chinese"),
 )
 

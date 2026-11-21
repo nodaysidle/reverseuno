@@ -122,13 +122,13 @@ fun DictionaryScreen(data: StoreData) {
                 Text("Add a word", style = Type.sectionTitle, color = Tokens.ink)
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "The first field is what you say. The correction is what should appear. Without one, the word is written exactly as you typed it, so fastfetch stays lowercase.",
+                    "Enter the spoken word and an optional replacement. Without a replacement, exact casing is preserved.",
                     style = Type.hint, color = Tokens.muted,
                 )
                 Spacer(Modifier.height(14.dp))
-                Input(word, { word = it.take(60) }, "e.g. nodaysidle")
+                Input(word, { word = it.take(60) }, "Spoken word")
                 Spacer(Modifier.height(8.dp))
-                Input(correction, { correction = it.take(60) }, "Correction (optional)", leading = Lucide.ArrowRight)
+                Input(correction, { correction = it.take(60) }, "Replacement (optional)", leading = Lucide.ArrowRight)
                 Spacer(Modifier.height(14.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Btn("Add", ::add, variant = BtnVariant.ACCENT, icon = Lucide.Plus, enabled = word.isNotBlank())

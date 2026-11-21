@@ -37,7 +37,6 @@ import androidx.compose.ui.unit.sp
 import com.composables.icons.lucide.BookOpen
 import com.composables.icons.lucide.House
 import com.composables.icons.lucide.Lucide
-import com.composables.icons.lucide.PenLine
 import com.composables.icons.lucide.Quote
 import com.composables.icons.lucide.Settings
 import com.nodaysidle.reverseuno.core.StoreData
@@ -46,7 +45,6 @@ enum class Page(val label: String, val icon: ImageVector) {
     HOME("Home", Lucide.House),
     DICTIONARY("Dictionary", Lucide.BookOpen),
     SNIPPETS("Snippets", Lucide.Quote),
-    STYLE("Style", Lucide.PenLine),
     SETTINGS("Settings", Lucide.Settings),
 }
 
@@ -61,7 +59,6 @@ fun HubApp(data: StoreData) {
                 Page.HOME -> HomeScreen(data, navigate = { page = it })
                 Page.DICTIONARY -> DictionaryScreen(data)
                 Page.SNIPPETS -> SnippetsScreen(data)
-                Page.STYLE -> StyleScreen(data)
                 Page.SETTINGS -> SettingsScreen(data)
             }
         }

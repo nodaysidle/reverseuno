@@ -8,7 +8,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -33,7 +32,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.nodaysidle.reverseuno.core.KEEP_DAYS_OPTIONS
-import com.nodaysidle.reverseuno.core.LANGUAGE_OPTIONS
 import com.nodaysidle.reverseuno.core.Store
 import com.nodaysidle.reverseuno.core.StoreData
 import com.nodaysidle.reverseuno.dictation.HubDictation
@@ -142,38 +140,6 @@ fun SettingsScreen(data: StoreData) {
                     }
                 }
                 SettingRow(
-                    "Language",
-                    "Auto-detect works across languages. Pick one only to force it.",
-                ) {
-                    Select(
-                        settings.stt.language,
-                        LANGUAGE_OPTIONS.map { it.value to it.label },
-                        { v -> Store.updateSettings { it.copy(stt = it.stt.copy(language = v)) } },
-                    )
-                }
-                SettingRow(
-                    "Languages you speak",
-                    "Text in any other language is rejected and transcribed again. Pick none to turn the check off.",
-                    stacked = true,
-                ) {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        LANGUAGE_OPTIONS.filter { it.value != "auto" }.forEach { option ->
-                            val on = option.value in settings.stt.allowedLanguages
-                            Btn(
-                                option.label,
-                                {
-                                    Store.updateSettings {
-                                        val next = if (on) it.stt.allowedLanguages - option.value else it.stt.allowedLanguages + option.value
-                                        it.copy(stt = it.stt.copy(allowedLanguages = next))
-                                    }
-                                },
-                                variant = if (on) BtnVariant.PRIMARY else BtnVariant.GHOST,
-                                size = BtnSize.SM,
-                            )
-                        }
-                    }
-                }
-                SettingRow(
                     "Test the pipeline",
                     hub.message.ifBlank { "Records, transcribes and saves to history. Nothing is inserted." },
                 ) {
@@ -193,15 +159,12 @@ fun SettingsScreen(data: StoreData) {
         }
 
         item {
-            Section("Providers", "Keys stay in this phone's keystore. Deepgram Nova-3 streams while you speak and handles retries directly. Optional cleanup runs on DeepSeek.") {
-                SettingRow("Deepgram", "Live streaming key (dg-…). Nova-3 with keyterm prompting.", divider = false, stacked = true) {
-                    KeyRow(Secret.DEEPGRAM, "dg-…", resume)
+            Section("Provider", "Keys stay in this phone's keystore. Deepgram Nova-3 streams live while you speak and handles retries directly.") {
+                SettingRow("Deepgram API key", "Nova-3 live streaming with smart formatting and keyterm prompting.", divider = false, stacked = true) {
+                    KeyRow(Secret.DEEPGRAM, resume)
                 }
                 SettingRow("Compress retry uploads", "Sends Ogg/Opus (~8x smaller than WAV) on offline retries. Falls back to WAV if rejected.") {
                     Toggle(settings.stt.compressUploads, { v -> Store.updateSettings { it.copy(stt = it.stt.copy(compressUploads = v)) } }, "Compress retry uploads")
-                }
-                SettingRow("DeepSeek", "Optional cleanup with ${settings.format.deepseekModel}. Tidies transcripts after speech-to-text.", stacked = true) {
-                    KeyRow(Secret.DEEPSEEK, "sk-…", resume)
                 }
             }
         }
@@ -306,7 +269,7 @@ private fun StatusChip(ok: Boolean, on: String, off: String) =
 
 /** Masked key field with Save, Test and Clear. The key is read from and written to KeyVault only. */
 @Composable
-private fun KeyRow(secret: Secret, placeholder: String, resume: Int) {
+private fun KeyRow(secret: Secret, resume: Int) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var stored by remember(resume) { mutableStateOf(KeyVault.get(context, secret)) }
@@ -331,7 +294,7 @@ private fun KeyRow(secret: Secret, placeholder: String, resume: Int) {
         }
         Input(
             input, { input = it },
-            if (stored.isNotEmpty()) "Replace key ($placeholder)" else placeholder,
+            if (stored.isNotEmpty()) "Replace API key" else "Paste API key",
             Modifier.fillMaxWidth(),
             visualTransformation = PasswordVisualTransformation(),
         )
