@@ -57,24 +57,18 @@ class FormatterTest {
 class CleanupFallbackTest {
     private val raw = "um so ship it tomorrow"
 
-    @Test fun haikuWinsWhenItWorks() = kotlinx.coroutines.test.runTest {
-        val result = firstGoodCleanup(raw, listOf("anthropic" to suspend { "Ship it tomorrow." }, "deepseek" to suspend { error("must not run") }))
-        assertEquals("Ship it tomorrow." to "anthropic", result.text to result.provider)
+    @Test fun deepseekReturnsCleanedText() = kotlinx.coroutines.test.runTest {
+        val result = firstGoodCleanup(raw, listOf("deepseek" to suspend { "Ship it tomorrow." }))
+        assertEquals("Ship it tomorrow." to "deepseek", result.text to result.provider)
         assertEquals(null, result.error)
     }
 
-    @Test fun deepseekCatchesHaikuFailures() = kotlinx.coroutines.test.runTest {
-        listOf<suspend () -> String>({ throw IllegalStateException("timeout") }, { "  " }, { "Sure! ".repeat(80) }).forEach { haiku ->
-            val result = firstGoodCleanup(raw, listOf("anthropic" to haiku, "deepseek" to suspend { "Ship it tomorrow." }))
-            assertEquals("deepseek", result.provider)
-            assertTrue(result.error!!.startsWith("anthropic:"))
+    @Test fun badDeepseekRepliesKeepTheRawTranscript() = kotlinx.coroutines.test.runTest {
+        listOf<suspend () -> String>({ throw IllegalStateException("timeout") }, { "  " }, { "Sure! ".repeat(80) }).forEach { bad ->
+            val result = firstGoodCleanup(raw, listOf("deepseek" to bad))
+            assertEquals(raw, result.text)
+            assertFalse(result.formatted)
+            assertTrue(result.error!!.startsWith("deepseek:"))
         }
-    }
-
-    @Test fun bothFailingKeepsTheRawTranscript() = kotlinx.coroutines.test.runTest {
-        val result = firstGoodCleanup(raw, listOf("anthropic" to suspend { error("529") }, "deepseek" to suspend { error("401") }))
-        assertEquals(raw, result.text)
-        assertFalse(result.formatted)
-        assertEquals("anthropic: 529; deepseek: 401", result.error)
     }
 }

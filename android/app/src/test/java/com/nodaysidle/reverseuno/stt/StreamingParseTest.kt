@@ -54,28 +54,21 @@ class StreamingParseTest {
     }
 
     @Test
-    fun xaiParsesLifecycleEvents() {
-        assertEquals(XaiEvent.Ready, parseXaiMessage("""{"type":"transcript.created"}"""))
-        val partial = parseXaiMessage("""{"type":"transcript.partial","text":"hel","is_final":false}""")
-        assertEquals(XaiEvent.Partial("hel", false), partial)
-        val done = parseXaiMessage("""{"type":"transcript.done","text":"hello","language":"en"}""")
-        assertEquals(XaiEvent.Done("hello", "en"), done)
-        assertEquals(XaiEvent.Error("boom"), parseXaiMessage("""{"type":"error","message":"boom"}"""))
-        assertEquals(XaiEvent.Ignored, parseXaiMessage("""{"type":"unknown"}"""))
-    }
+    fun deepgramRestUrlAndResponseParsing() {
+        val url = deepgramRestUrl("nova-3", "sl", listOf("reverseuno", "reverseuno"))
+        assertTrue(url.startsWith("https://api.deepgram.com/v1/listen?"))
+        assertTrue(url.contains("model=nova-3"))
+        assertTrue(url.contains("language=sl"))
+        assertTrue(url.contains("smart_format=true"))
+        assertEquals(1, Regex("keyterm=reverseuno").findAll(url).count())
 
-    @Test
-    fun xaiUrlCarriesStreamingContract() {
-        val url = xaiRequestUrl("grok-voice-transcribe-2.0", "en", listOf("reverseuno")).toString()
-        assertTrue(url.startsWith("wss://api.x.ai/v1/stt?"))
-        assertTrue(url.contains("encoding=pcm"))
-        assertTrue(url.contains("sample_rate=16000"))
-        assertTrue(url.contains("format=true"))
-        assertTrue(url.contains("interim_results=true"))
-        assertTrue(url.contains("language=en"))
-        assertTrue(url.contains("keyterm=reverseuno"))
+        val auto = deepgramRestUrl("nova-3", "auto", emptyList())
+        assertTrue(auto.contains("language=multi"))
 
-        val auto = xaiRequestUrl("grok-voice-transcribe-2.0", "auto", emptyList()).toString()
-        assertFalse(auto.contains("language="))
+        val parsed = parseDeepgramRestResponse(
+            """{"results":{"channels":[{"detected_language":"en","alternatives":[{"transcript":" hello world "}]}]}}""",
+            "auto",
+        )
+        assertEquals(SttResult("hello world", "en"), parsed)
     }
 }

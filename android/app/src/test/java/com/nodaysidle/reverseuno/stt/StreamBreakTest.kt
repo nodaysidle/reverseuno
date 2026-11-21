@@ -29,9 +29,6 @@ class StreamBreakTest {
     private fun deepgram(fake: FakeSocket) =
         DeepgramStreamingClient("test-key", "en", emptyList(), connect = { _, l -> listener = l; fake })
 
-    private fun xai(fake: FakeSocket) =
-        XaiStreamingClient("test-key", "en", emptyList(), connect = { _, l -> listener = l; fake })
-
     @Test
     fun deepgramNormalStopKeepsStreamedText() = runBlocking {
         lateinit var fake: FakeSocket
@@ -70,29 +67,6 @@ class StreamBreakTest {
         assertFalse(client.droppedAudio)
         fake.accept = false
         client.send(ByteArray(8))
-        assertTrue(client.droppedAudio)
-    }
-
-    @Test
-    fun xaiNormalStopUsesDoneText() = runBlocking {
-        lateinit var fake: FakeSocket
-        fake = FakeSocket(onText = {
-            if ("audio.done" in it) listener.onMessage(fake, """{"type":"transcript.done","text":"hello","language":"en"}""")
-        })
-        val client = xai(fake)
-        listener.onMessage(fake, """{"type":"transcript.created"}""")
-        assertEquals("hello", client.finish()?.text)
-        assertFalse(client.droppedAudio)
-    }
-
-    @Test
-    fun xaiCloseWithoutDoneFlagsDroppedAudio() = runBlocking {
-        lateinit var fake: FakeSocket
-        fake = FakeSocket(onText = { if ("audio.done" in it) listener.onClosed(fake, 1000, "") })
-        val client = xai(fake)
-        listener.onMessage(fake, """{"type":"transcript.created"}""")
-        listener.onMessage(fake, """{"type":"transcript.partial","text":"hel","is_final":false}""")
-        assertEquals("hel", client.finish()?.text)
         assertTrue(client.droppedAudio)
     }
 }

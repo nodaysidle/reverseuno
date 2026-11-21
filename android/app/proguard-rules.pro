@@ -4,10 +4,4 @@
 -dontwarn okhttp3.**
 -dontwarn okio.**
 -dontwarn com.google.auto.value.AutoValue
-# anthropic-java maps requests and responses with Jackson by reflection.
--keepattributes Signature,*Annotation*,InnerClasses,EnclosingMethod
--keep class com.anthropic.** { *; }
--keep class com.fasterxml.jackson.** { *; }
--dontwarn com.fasterxml.jackson.**
--dontwarn java.lang.reflect.AnnotatedParameterizedType
--dontwarn java.lang.reflect.AnnotatedType
+-dontwarn com.google.errorprone.annotations.**

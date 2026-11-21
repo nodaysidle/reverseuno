@@ -24,44 +24,21 @@ enum class WritingStyle(val label: String, val blurb: String) {
 
 @Serializable
 data class SttSettings(
-    /** OpenRouter transcription model id (any slug from /models?output_modalities=transcription). */
-    val model: String = "openai/gpt-4o-mini-transcribe",
-    /** "auto" leaves the language out so the model detects it per dictation. */
+    /** Deepgram model. Nova-3 streams live over WebSocket and handles direct REST retries. */
+    val model: String = "nova-3",
+    /** "auto" sends language=multi so Deepgram detects and code-switches per dictation. */
     val language: String = "auto",
     val keytermLimit: Int = 15,
-    /** Stream PCM to the selected provider while recording; one-shot OpenRouter remains the fallback. */
-    val streaming: Boolean = true,
-    /**
-     * "openrouter" uploads the recording once after you stop (no streaming);
-     * "deepgram" or "xai" stream while you speak, with OpenRouter as the fallback.
-     */
-    val provider: String = PROVIDER_OPENROUTER,
-    /** Deepgram streaming model. Nova-3 matches the desktop build. */
-    val deepgramModel: String = "nova-3",
-    /** xAI streaming model. */
-    val xaiModel: String = "grok-voice-transcribe-2.0",
-    /** OpenRouter uploads go as Ogg/Opus (~8x smaller than WAV); a rejected or failed encode sends the WAV. */
+    /** Fallback/retry uploads go as Ogg/Opus (~8x smaller than WAV); a rejected or failed encode sends the WAV. */
     val compressUploads: Boolean = true,
     /** Languages the user dictates in (two-letter codes). Empty = no check. A transcript outside them is rejected. */
     val allowedLanguages: List<String> = emptyList(),
-    /** OpenRouter model for the second try after a rejected transcript; it must obey a forced language. */
-    val strictModel: String = "openai/whisper-large-v3",
 )
-
-const val PROVIDER_OPENROUTER = "openrouter"
-
-/** An OpenRouter model slug such as "openai/gpt-4o-mini-transcribe" (optionally with a ":variant"). */
-fun isModelSlug(id: String): Boolean = Regex("^[a-z0-9][a-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._:-]*$").matches(id)
-
-/** Streaming runs only for a streaming provider with streaming on; OpenRouter is always one upload. */
-fun SttSettings.usesStreaming(): Boolean = streaming && provider != PROVIDER_OPENROUTER
 
 @Serializable
 data class FormatSettings(
     val enabled: Boolean = true,
-    /** Primary cleanup model, through the Anthropic API. */
-    val anthropicModel: String = "claude-haiku-5-5",
-    /** Fallback when Anthropic fails. DeepSeek-V4.1-Flash; "deepseek-v4.1-flash" is only its OpenRouter id, the direct API calls it this. */
+    /** Cleanup model through the direct DeepSeek API. */
     val deepseekModel: String = "deepseek-flash",
     val cleanup: CleanupLevel = CleanupLevel.LIGHT,
     val style: WritingStyle = WritingStyle.CASUAL,
@@ -181,8 +158,8 @@ data class Suggestion(
     val source: String = "edit",
 )
 
-/** v2 sends 15 keyterms instead of 50; v3 adds history status and kept audio (defaults cover old entries). See [migrate]. */
-const val STORE_VERSION = 3
+/** v2 sends 15 keyterms instead of 50; v3 adds history status and kept audio; v4 normalizes STT to Deepgram nova-3. See [migrate]. */
+const val STORE_VERSION = 4
 
 /**
  * Moves an older store off defaults that changed. Past ~15 keyterms, sound-alike developer
@@ -191,8 +168,9 @@ const val STORE_VERSION = 3
 fun migrate(data: StoreData): StoreData {
     if (data.version >= STORE_VERSION) return data
     // v1 -> v2 only: a v2 store with 50 keyterms chose it deliberately.
-    val stt = if (data.version < 2 && data.settings.stt.keytermLimit == 50) data.settings.stt.copy(keytermLimit = SttSettings().keytermLimit) else data.settings.stt
-    // v2 -> v3 needs no rewrite: status, audioPath and attempts default to a finished entry.
+    var stt = if (data.version < 2 && data.settings.stt.keytermLimit == 50) data.settings.stt.copy(keytermLimit = SttSettings().keytermLimit) else data.settings.stt
+    // v3 -> v4: old OpenRouter model slugs (e.g. "openai/gpt-4o-mini-transcribe") reset to Deepgram nova-3.
+    if (data.version < 4 && ('/' in stt.model || stt.model.isBlank())) stt = stt.copy(model = SttSettings().model)
     return data.copy(version = STORE_VERSION, settings = data.settings.copy(stt = stt))
 }
 

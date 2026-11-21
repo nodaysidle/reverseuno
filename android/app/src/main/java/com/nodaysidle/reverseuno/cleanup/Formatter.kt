@@ -92,30 +92,24 @@ internal fun cleanResponse(raw: String): String {
 data class FormatResult(val text: String, val formatted: Boolean, val latencyMs: Long, val error: String? = null, val provider: String? = null)
 
 /**
- * Formats [raw] with Claude Haiku first and DeepSeek Flash only if that fails (error, timeout, empty or
- * runaway reply, or no Anthropic key). If both fail, the raw transcript comes back with [FormatResult.error] set.
+ * Formats [raw] with DeepSeek Flash. If it fails (error, timeout, empty or runaway reply, or no key),
+ * the raw transcript comes back with [FormatResult.error] set.
  */
 suspend fun formatTranscript(
     raw: String,
     settings: Settings,
-    anthropicKey: String,
     deepseekKey: String,
     context: PromptContext,
 ): FormatResult {
     val started = System.currentTimeMillis()
     val format = settings.format
     if (!format.enabled || format.cleanup == CleanupLevel.NONE) return FormatResult(raw, false, 0)
-    if (anthropicKey.isBlank() && deepseekKey.isBlank()) return FormatResult(raw, false, 0, "No formatting API key")
+    if (deepseekKey.isBlank()) return FormatResult(raw, false, 0, "No formatting API key")
 
     val system = buildSystemPrompt(context)
     val timeoutMs = maxOf(1000, format.timeoutMs).toLong()
-    val attempts = listOfNotNull(
-        anthropicKey.takeIf { it.isNotBlank() }?.let { key ->
-            "anthropic" to suspend { AnthropicCleaner(key, timeoutMs).complete(format.anthropicModel, system, raw) }
-        },
-        deepseekKey.takeIf { it.isNotBlank() }?.let { key ->
-            "deepseek" to suspend { DeepSeekCleaner(key, timeoutMs).complete(format.deepseekModel, system, raw) }
-        },
+    val attempts = listOf(
+        "deepseek" to suspend { DeepSeekCleaner(deepseekKey, timeoutMs).complete(format.deepseekModel, system, raw) },
     )
     return firstGoodCleanup(raw, attempts).copy(latencyMs = System.currentTimeMillis() - started)
 }

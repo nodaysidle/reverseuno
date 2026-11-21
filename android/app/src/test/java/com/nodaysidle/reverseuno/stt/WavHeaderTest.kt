@@ -32,8 +32,8 @@ class WavHeaderTest {
     }
 
     @Test
-    fun chunkIsOneQuarterSecondOfPcm() {
+    fun chunkIsOneTenthSecondOfPcm() {
         assertEquals(32, PCM_BYTES_PER_MS)
-        assertEquals(8_000, PCM_CHUNK_BYTES)
+        assertEquals(3_200, PCM_CHUNK_BYTES)
     }
 }

@@ -18,7 +18,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -35,18 +34,14 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.nodaysidle.reverseuno.core.KEEP_DAYS_OPTIONS
 import com.nodaysidle.reverseuno.core.LANGUAGE_OPTIONS
-import com.nodaysidle.reverseuno.core.PROVIDER_OPENROUTER
 import com.nodaysidle.reverseuno.core.Store
 import com.nodaysidle.reverseuno.core.StoreData
-import com.nodaysidle.reverseuno.core.isModelSlug
-import com.nodaysidle.reverseuno.core.usesStreaming
 import com.nodaysidle.reverseuno.dictation.HubDictation
 import com.nodaysidle.reverseuno.dictation.HubPhase
 import com.nodaysidle.reverseuno.security.KeyVault
 import com.nodaysidle.reverseuno.security.Secret
 import com.nodaysidle.reverseuno.service.BubbleRuntime
 import com.nodaysidle.reverseuno.stt.ProviderApi
-import com.nodaysidle.reverseuno.stt.SttModel
 import kotlinx.coroutines.launch
 
 private sealed interface KeyTest {
@@ -86,9 +81,6 @@ fun SettingsScreen(data: StoreData) {
         }.isSuccess
         toast(context, if (ok) "Exported" else "Could not export")
     }
-
-    var sttModels by remember { mutableStateOf<List<SttModel>>(emptyList()) }
-    LaunchedEffect(Unit) { sttModels = ProviderApi.openRouterSttModels(context) }
 
     val hub by HubDictation.state.collectAsState()
     var confirmClear by remember { mutableStateOf(false) }
@@ -201,50 +193,14 @@ fun SettingsScreen(data: StoreData) {
         }
 
         item {
-            Section("Providers", "Keys stay in this phone's keystore. OpenRouter uploads each recording once after you stop; Deepgram and xAI stream while you speak, with OpenRouter as their fallback. Cleanup goes to Claude Haiku, with DeepSeek as a fallback.") {
-                val sttChoice = if (settings.stt.usesStreaming()) settings.stt.provider else PROVIDER_OPENROUTER
-                SettingRow("Transcription", "Who turns your voice into text.", divider = false, stacked = true) {
-                    Select(
-                        sttChoice,
-                        listOf(
-                            PROVIDER_OPENROUTER to "OpenRouter (upload after you stop)",
-                            "deepgram" to "Deepgram Nova-3 (live)",
-                            "xai" to "xAI Grok Voice (live)",
-                        ),
-                        { v -> Store.updateSettings { it.copy(stt = it.stt.copy(provider = v, streaming = v != PROVIDER_OPENROUTER)) } },
-                    )
-                }
-                SettingRow(
-                    "OpenRouter",
-                    if (sttChoice == PROVIDER_OPENROUTER) "API key (sk-or-…). Every dictation is sent as one WAV file."
-                    else "API key (sk-or-…). Used when streaming fails, and to retry failed dictations.",
-                    stacked = true,
-                ) {
-                    KeyRow(Secret.OPENROUTER, "sk-or-…", resume)
-                }
-                SettingRow("OpenRouter model", "Speech-to-text models, loaded live from OpenRouter.", stacked = true) {
-                    val current = settings.stt.model
-                    val options = sttModels.map { it.id to it.label }.let { list ->
-                        if (list.any { it.first == current }) list else listOf(current to current) + list
-                    }
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        Select(current, options, { v -> Store.updateSettings { it.copy(stt = it.stt.copy(model = v)) } })
-                        ModelIdInput(current) { v -> Store.updateSettings { it.copy(stt = it.stt.copy(model = v)) } }
-                    }
-                }
-                SettingRow("Compress uploads", "Sends Ogg/Opus, about 8x smaller than WAV. Falls back to WAV if a model refuses it.") {
-                    Toggle(settings.stt.compressUploads, { v -> Store.updateSettings { it.copy(stt = it.stt.copy(compressUploads = v)) } }, "Compress uploads")
-                }
-                SettingRow("Deepgram", "Streaming key (dg-…). Nova-3 with keyterm prompting.", stacked = true) {
+            Section("Providers", "Keys stay in this phone's keystore. Deepgram Nova-3 streams while you speak and handles retries directly. Optional cleanup runs on DeepSeek.") {
+                SettingRow("Deepgram", "Live streaming key (dg-…). Nova-3 with keyterm prompting.", divider = false, stacked = true) {
                     KeyRow(Secret.DEEPGRAM, "dg-…", resume)
                 }
-                SettingRow("xAI", "Streaming key (xai-…). Grok Voice Transcribe 2.0, 38 languages, smart turn.", stacked = true) {
-                    KeyRow(Secret.XAI, "xai-…", resume)
+                SettingRow("Compress retry uploads", "Sends Ogg/Opus (~8x smaller than WAV) on offline retries. Falls back to WAV if rejected.") {
+                    Toggle(settings.stt.compressUploads, { v -> Store.updateSettings { it.copy(stt = it.stt.copy(compressUploads = v)) } }, "Compress retry uploads")
                 }
-                SettingRow("Anthropic", "Cleanup with ${settings.format.anthropicModel}. Tidies every transcript after speech-to-text.", stacked = true) {
-                    KeyRow(Secret.ANTHROPIC, "sk-ant-…", resume)
-                }
-                SettingRow("DeepSeek fallback", "Used only when Anthropic fails or times out: ${settings.format.deepseekModel} (V4.1 Flash).", stacked = true) {
+                SettingRow("DeepSeek", "Optional cleanup with ${settings.format.deepseekModel}. Tidies transcripts after speech-to-text.", stacked = true) {
                     KeyRow(Secret.DEEPSEEK, "sk-…", resume)
                 }
             }
@@ -347,21 +303,6 @@ fun SettingsScreen(data: StoreData) {
 private fun StatusChip(ok: Boolean, on: String, off: String) =
     if (ok) Chip(on, bg = Tokens.greenSoft, fg = Tokens.green, dot = Tokens.green)
     else Chip(off, bg = Tokens.redSoft, fg = Tokens.red, dot = Tokens.red)
-
-/** Free-text OpenRouter model slug, for models the live list does not show yet. */
-@Composable
-private fun ModelIdInput(current: String, onSave: (String) -> Unit) {
-    val context = LocalContext.current
-    var input by remember(current) { mutableStateOf(current) }
-    val candidate = input.trim()
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Input(input, { input = it }, "provider/model-id", Modifier.weight(1f))
-        Btn("Use", {
-            onSave(candidate)
-            toast(context, "Model set to $candidate")
-        }, size = BtnSize.SM, enabled = isModelSlug(candidate) && candidate != current)
-    }
-}
 
 /** Masked key field with Save, Test and Clear. The key is read from and written to KeyVault only. */
 @Composable

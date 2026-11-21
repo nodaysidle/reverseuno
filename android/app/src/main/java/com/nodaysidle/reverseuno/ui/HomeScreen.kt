@@ -164,9 +164,7 @@ fun HomeScreen(data: StoreData, navigate: (Page) -> Unit) {
     val micOn = remember(tick) { SystemSetup.hasMic(context) }
     val a11yOn = remember(tick) { SystemSetup.isAccessibilityOn(context) }
     val keyOn = remember(tick) {
-        KeyVault.get(context, Secret.OPENROUTER).isNotBlank() ||
-            KeyVault.get(context, Secret.DEEPGRAM).isNotBlank() ||
-            KeyVault.get(context, Secret.XAI).isNotBlank()
+        KeyVault.get(context, Secret.DEEPGRAM).isNotBlank()
     }
     val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { tick++ }
     val askMic = { micLauncher.launch(Manifest.permission.RECORD_AUDIO) }
@@ -273,7 +271,7 @@ private fun SetupCard(
         Spacer(Modifier.height(6.dp))
         SetupItem(micOn, "Allow the microphone", "Reverseuno listens only while you dictate.", "Allow", askMic)
         SetupItem(a11yOn, "Turn on the accessibility service", "It sees the text field and types what you say.", "Turn on", openA11y)
-        SetupItem(keyOn, "Add a transcription key", "Deepgram, xAI, or OpenRouter. Any one works.", "Add key", openSettings)
+        SetupItem(keyOn, "Add a Deepgram key", "Live speech-to-text with Deepgram Nova-3.", "Add key", openSettings)
     }
 }
 

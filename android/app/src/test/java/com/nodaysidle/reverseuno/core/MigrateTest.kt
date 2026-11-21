@@ -19,9 +19,16 @@ class MigrateTest {
         assertEquals(50, migrate(store(STORE_VERSION, 50)).settings.stt.keytermLimit)
     }
 
-    @Test fun aV2StoreKeepsItsDeliberateFiftyWhenMovingToV3() {
+    @Test fun aV2StoreKeepsItsDeliberateFiftyWhenMovingToCurrent() {
         val migrated = migrate(store(2, 50))
         assertEquals(50, migrated.settings.stt.keytermLimit)
+        assertEquals(STORE_VERSION, migrated.version)
+    }
+
+    @Test fun v3StoreWithOpenRouterSlugMigratesToNova3() {
+        val old = StoreData(version = 3, settings = Settings(stt = SttSettings(model = "openai/gpt-4o-mini-transcribe")))
+        val migrated = migrate(old)
+        assertEquals("nova-3", migrated.settings.stt.model)
         assertEquals(STORE_VERSION, migrated.version)
     }
 }

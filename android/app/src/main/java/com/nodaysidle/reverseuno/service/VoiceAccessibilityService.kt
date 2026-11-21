@@ -29,7 +29,6 @@ import com.nodaysidle.reverseuno.core.EntryStatus
 import com.nodaysidle.reverseuno.core.Settings
 import com.nodaysidle.reverseuno.core.Store
 import com.nodaysidle.reverseuno.core.preferredSpellings
-import com.nodaysidle.reverseuno.core.usesStreaming
 import com.nodaysidle.reverseuno.dictation.Pipeline
 import com.nodaysidle.reverseuno.dictation.Target
 import com.nodaysidle.reverseuno.dictation.Transcript
@@ -40,7 +39,6 @@ import com.nodaysidle.reverseuno.stt.DeepgramStreamingClient
 import com.nodaysidle.reverseuno.stt.DictationAudioRecorder
 import com.nodaysidle.reverseuno.stt.StreamingStt
 import com.nodaysidle.reverseuno.stt.SttResult
-import com.nodaysidle.reverseuno.stt.XaiStreamingClient
 import com.nodaysidle.reverseuno.stt.silentMicMessage
 import com.nodaysidle.reverseuno.ui.BubbleState
 import kotlinx.coroutines.CancellationException
@@ -463,23 +461,13 @@ class VoiceAccessibilityService : AccessibilityService(), BubbleController {
         showFeedback(feedback.state, "Copied, paste it", feedback.holdMillis)
     }
 
-    /** Null when streaming is off, OpenRouter is the provider, or the selected provider has no key; the one-shot path then runs. */
+    /** Live Deepgram Nova-3 stream; null only if the key is missing or setup throws (REST fallback then runs). */
     private fun createStreamer(settings: Settings, keyterms: List<String>): StreamingStt? {
-        if (!settings.stt.usesStreaming()) return null
-        val language = settings.stt.language
+        val key = KeyVault.get(this, Secret.DEEPGRAM).takeIf { it.isNotBlank() } ?: return null
         return runCatching {
-            when (settings.stt.provider) {
-                "xai" -> KeyVault.get(this, Secret.XAI).takeIf { it.isNotBlank() }?.let { key ->
-                    streamProvider = "xai"
-                    streamModel = settings.stt.xaiModel
-                    XaiStreamingClient(key, language, keyterms, settings.stt.xaiModel)
-                }
-                else -> KeyVault.get(this, Secret.DEEPGRAM).takeIf { it.isNotBlank() }?.let { key ->
-                    streamProvider = "deepgram"
-                    streamModel = settings.stt.deepgramModel
-                    DeepgramStreamingClient(key, language, keyterms, settings.stt.deepgramModel)
-                }
-            }
+            streamProvider = "deepgram"
+            streamModel = settings.stt.model
+            DeepgramStreamingClient(key, settings.stt.language, keyterms, settings.stt.model)
         }.onFailure { Log.w(TAG, "Streaming setup failed: ${it.message}") }.getOrNull()
     }
 

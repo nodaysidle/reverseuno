@@ -19,14 +19,9 @@ class OpusUploadTest {
         listOf(200, 401, 402, 403, 408, 429, 500, 502).forEach { assertFalse("$it", shouldResendAsWav(it)) }
     }
 
-    @Test fun oggIsAnAcceptedUploadFormat() {
-        val body = openRouterSttBody("openai/gpt-4o-mini-transcribe", byteArrayOf(79, 103, 103, 83), "ogg", "auto", emptyList())
-        assertEquals("ogg", body.getJSONObject("input_audio").getString("format"))
-    }
-
     @Test fun compressionIsOnByDefaultAndForStoresSavedBeforeIt() {
         assertTrue(SttSettings().compressUploads)
-        val saved = """{"model":"openai/gpt-4o-mini-transcribe","provider":"openrouter","streaming":false}"""
+        val saved = """{"model":"nova-3","provider":"openrouter","streaming":false}"""
         assertTrue(Json { ignoreUnknownKeys = true }.decodeFromString(SttSettings.serializer(), saved).compressUploads)
     }
 }

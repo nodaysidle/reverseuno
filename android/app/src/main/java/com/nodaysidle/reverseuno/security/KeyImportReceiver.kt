@@ -8,7 +8,7 @@ import android.util.Log
 /**
  * Receives the desktop keys from scripts/push-keys-to-phone.py. The manifest guards it with
  * android.permission.DUMP, which only the adb shell and the system hold, so other apps cannot call it.
- * Extras are Secret names (OPENROUTER, ANTHROPIC, DEEPSEEK) mapped to keys.
+ * Extras are Secret names (DEEPGRAM, DEEPSEEK) mapped to keys.
  */
 class KeyImportReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {

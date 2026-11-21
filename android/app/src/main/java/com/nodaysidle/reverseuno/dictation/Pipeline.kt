@@ -14,12 +14,11 @@ import com.nodaysidle.reverseuno.core.expandSnippet
 import com.nodaysidle.reverseuno.core.preferredSpellings
 import com.nodaysidle.reverseuno.core.sanitizeTranscript
 import com.nodaysidle.reverseuno.core.strictRetryLanguage
-import com.nodaysidle.reverseuno.core.usesStreaming
 import com.nodaysidle.reverseuno.core.violatesAllowedLanguages
 import com.nodaysidle.reverseuno.core.wordCount
 import com.nodaysidle.reverseuno.security.KeyVault
 import com.nodaysidle.reverseuno.security.Secret
-import com.nodaysidle.reverseuno.stt.OpenRouterSttClient
+import com.nodaysidle.reverseuno.stt.DeepgramRestClient
 import com.nodaysidle.reverseuno.stt.OpusEncoder
 import com.nodaysidle.reverseuno.stt.SttResult
 import java.io.File
@@ -37,31 +36,22 @@ data class Transcript(
     val language: String,
     val asrMs: Long,
     val formatMs: Long,
-    val provider: String = "openrouter",
-    val model: String = "",
+    val provider: String = "deepgram",
+    val model: String = "nova-3",
 )
 
 /**
- * The desktop dictation pipeline (src/main/dictation.ts):
- * transcribe (streaming when available, one-shot otherwise) -> sanitize -> snippet or format -> dictionary spellings.
+ * The dictation pipeline:
+ * transcribe (Deepgram Nova-3 streaming, or direct Deepgram REST on retry/fallback) -> sanitize -> snippet or format -> dictionary spellings.
  */
 class Pipeline(private val context: Context) {
 
-    /** Null when some transcription path is configured; otherwise what the bubble should say. */
-    fun setupProblem(): String? {
-        val stt = Store.settings.stt
-        val oneShotReady = KeyVault.get(context, Secret.OPENROUTER).isNotBlank()
-        if (!stt.usesStreaming()) return if (oneShotReady) null else "Add an OpenRouter key"
-        val streamingKey = when (stt.provider) {
-            "xai" -> Secret.XAI
-            else -> Secret.DEEPGRAM
-        }
-        val streamReady = KeyVault.get(context, streamingKey).isNotBlank()
-        return if (streamReady || oneShotReady) null else "Add a transcription key"
-    }
+    /** Null when Deepgram is configured; otherwise what the bubble should say. */
+    fun setupProblem(): String? =
+        if (KeyVault.get(context, Secret.DEEPGRAM).isNotBlank()) null else "Add a Deepgram key"
 
     /**
-     * [streamed] is the result of the live stream when it produced text; it skips the one-shot call.
+     * [streamed] is the result of the live stream when it produced text; it skips the REST call.
      * Null when nothing was said. Throws when transcription fails, and throws [WRONG_LANGUAGE]
      * when the transcript is still outside `stt.allowedLanguages` after the strict second try.
      */
@@ -75,41 +65,40 @@ class Pipeline(private val context: Context) {
     ): Transcript? {
         val settings = Store.settings
         val data = Store.data.value
+        val deepgramKey = KeyVault.get(context, Secret.DEEPGRAM)
+        val keyterms = preferredSpellings(data.dictionary, settings.stt.keytermLimit)
         var stt: SttResult
         var asrMs: Long
-        var provider: String
-        var model: String
+        val provider = streamedProvider.ifBlank { "deepgram" }
+        val model = streamedModel.ifBlank { settings.stt.model }
         if (streamed != null) {
             stt = streamed
             asrMs = streamedMs
-            provider = streamedProvider
-            model = streamedModel.ifBlank { settings.stt.model }
         } else {
             val asrStarted = System.currentTimeMillis()
             val compressed = if (settings.stt.compressUploads) compressForUpload(audio) else null
             try {
-                stt = OpenRouterSttClient(KeyVault.get(context, Secret.OPENROUTER), settings.stt.model)
-                    .transcribe(audio, settings.stt.language, preferredSpellings(data.dictionary, settings.stt.keytermLimit), compressed)
+                stt = DeepgramRestClient(deepgramKey, model)
+                    .transcribe(audio, settings.stt.language, keyterms, compressed)
             } finally {
                 compressed?.delete()
             }
             asrMs = System.currentTimeMillis() - asrStarted
-            provider = "openrouter"
-            model = settings.stt.model
         }
         val allowed = settings.stt.allowedLanguages
         if (violatesAllowedLanguages(stt.text, stt.language, allowed)) {
             val forced = strictRetryLanguage(settings.stt.language, allowed)
-            val sameCall = provider == "openrouter" && model == settings.stt.strictModel && settings.stt.language.equals(forced, ignoreCase = true)
-            // No second try possible (no OpenRouter key) or it would repeat the same request.
-            if (!hasOneShot() || sameCall) error(WRONG_LANGUAGE)
-            Log.w(TAG, "Transcript outside the allowed languages; retrying with ${settings.stt.strictModel} lang=$forced")
+            val sameCall = streamed == null && settings.stt.language.equals(forced, ignoreCase = true)
+            if (deepgramKey.isBlank() || sameCall) error(WRONG_LANGUAGE)
+            Log.w(TAG, "Transcript outside the allowed languages; retrying with Deepgram $model lang=$forced")
             val retryStarted = System.currentTimeMillis()
-            stt = OpenRouterSttClient(KeyVault.get(context, Secret.OPENROUTER), settings.stt.strictModel)
-                .transcribe(audio, forced, preferredSpellings(data.dictionary, settings.stt.keytermLimit))
+            val compressed = if (settings.stt.compressUploads) compressForUpload(audio) else null
+            try {
+                stt = DeepgramRestClient(deepgramKey, model).transcribe(audio, forced, keyterms, compressed)
+            } finally {
+                compressed?.delete()
+            }
             asrMs += System.currentTimeMillis() - retryStarted
-            provider = "openrouter"
-            model = settings.stt.strictModel
             if (violatesAllowedLanguages(stt.text, stt.language, allowed)) error(WRONG_LANGUAGE)
         }
         val raw = sanitizeTranscript(stt.text).ifEmpty { return null }
@@ -125,7 +114,6 @@ class Pipeline(private val context: Context) {
             val result = formatTranscript(
                 raw,
                 settings,
-                KeyVault.get(context, Secret.ANTHROPIC),
                 KeyVault.get(context, Secret.DEEPSEEK),
                 PromptContext(
                     cleanup = settings.format.cleanup,
@@ -153,8 +141,8 @@ class Pipeline(private val context: Context) {
     fun forInsertion(text: String): String =
         if (Store.settings.insert.appendSpace && !text.last().isWhitespace()) "$text " else text
 
-    /** True when the one-shot (OpenRouter) path can run, which also makes a retry from the saved audio possible. */
-    fun hasOneShot(): Boolean = KeyVault.get(context, Secret.OPENROUTER).isNotBlank()
+    /** True when the direct Deepgram REST path can run for retries and dropped-stream recovery. */
+    fun hasOneShot(): Boolean = KeyVault.get(context, Secret.DEEPGRAM).isNotBlank()
 
     /**
      * Saves the recording as a pending entry before transcription starts, so a failure, a crash or
