@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+mkdir -p "$ROOT/build/tests"
+cd "$ROOT/build/tests"
+
+qmake6 "$ROOT/tests/reverseuno_tests.pro"
+make -j"$(nproc)"
+
+# The D-Bus tests need a session bus; start a private one when there is none,
+# so the tests never touch the user's own bus.
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && command -v dbus-run-session >/dev/null 2>&1; then
+    exec dbus-run-session -- env QT_QPA_PLATFORM=offscreen ./reverseuno_tests
+fi
+QT_QPA_PLATFORM=offscreen ./reverseuno_tests

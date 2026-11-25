@@ -1,0 +1,24 @@
+[Desktop Entry]
+Type=Application
+Name=reverseuno
+GenericName=Dictation
+GenericName[da]=Diktering
+GenericName[de]=Diktat
+GenericName[es]=Dictado
+GenericName[fr]=Dictée
+GenericName[it]=Dettatura
+GenericName[pt_BR]=Ditado
+GenericName[sl]=Narekovanje
+Comment=Hold a key, speak, release: the text lands where you were typing
+Comment[da]=Hold en tast nede, tal, slip: teksten lander, hvor du skrev
+Comment[de]=Taste halten, sprechen, loslassen: der Text landet dort, wo du getippt hast
+Comment[es]=Mantén una tecla, habla, suelta: el texto aparece donde escribías
+Comment[fr]=Maintenez une touche, parlez, relâchez : le texte arrive là où vous écriviez
+Comment[it]=Tieni premuto un tasto, parla, rilascia: il testo arriva dove stavi scrivendo
+Comment[pt_BR]=Segure uma tecla, fale, solte: o texto aparece onde você estava digitando
+Comment[sl]=Drži tipko, govori, spusti: besedilo se vstavi, kjer si pisal
+Exec=reverseuno
+Icon=reverseuno
+Terminal=false
+Categories=Utility;Accessibility;
+StartupWMClass=reverseuno

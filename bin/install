@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+# The package is built from this working tree, uncommitted changes included.
+export REVERSEUNO_SRC="$ROOT"
+cd "$ROOT/pkgbuild"
+exec makepkg -fsi "$@"

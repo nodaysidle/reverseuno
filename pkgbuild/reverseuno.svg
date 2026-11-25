@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>reverseuno</title>
+  <rect width="256" height="256" fill="#0b0b0c"/>
+  <path fill="#ffd60a" d="M64 200V56h36l60 92V56h32v144h-36L96 108v92z"/>
+</svg>

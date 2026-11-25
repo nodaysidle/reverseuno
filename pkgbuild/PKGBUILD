@@ -1,0 +1,41 @@
+# Builds the working tree this file sits in, uncommitted changes included:
+# makepkg copies it into $srcdir, so there is no git source. `bin/install` sets
+# REVERSEUNO_SRC to the checkout; a plain `makepkg` here uses the parent folder.
+pkgname=reverseuno
+pkgver=0.3.0
+pkgrel=1
+pkgdesc='Push-to-talk dictation for Hyprland: hold a key, speak, release'
+arch=('x86_64' 'aarch64')
+url='https://github.com/nodaysidle/reverseuno'
+license=('MIT')
+depends=('qt6-base' 'qt6-declarative' 'qt6-multimedia' 'qt6-svg' 'qt6-wayland' 'qt6-websockets'
+         'ffmpeg' 'wl-clipboard' 'wtype' 'hyprland')
+makedepends=('gcc' 'make')
+options=('!debug')
+source=()
+sha256sums=()
+
+prepare() {
+  local tree="${REVERSEUNO_SRC:-$startdir/..}"
+  mkdir -p "$srcdir/$pkgname/pkgbuild"
+  cp -a "$tree/reverseuno.pro" "$tree/LICENSE" "$tree/bin" "$tree/src" "$tree/tests" "$srcdir/$pkgname/"
+  cp -a "$tree/pkgbuild/reverseuno.svg" "$tree/pkgbuild/reverseuno.desktop" "$srcdir/$pkgname/pkgbuild/"
+}
+
+build() {
+  cd "$pkgname"
+  ./bin/build
+}
+
+check() {
+  cd "$pkgname"
+  ./bin/test
+}
+
+package() {
+  cd "$pkgname"
+  install -Dm755 build/reverseuno "$pkgdir/usr/bin/reverseuno"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 pkgbuild/reverseuno.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/reverseuno.svg"
+  install -Dm644 pkgbuild/reverseuno.desktop "$pkgdir/usr/share/applications/reverseuno.desktop"
+}

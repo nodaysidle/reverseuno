@@ -1,0 +1,9 @@
+<RCC>
+    <qresource prefix="/">
+        <file alias="Main.qml">Main.qml</file>
+        <file alias="i18n/en.json">i18n/en.json</file>
+        <file alias="skill/SKILL.md">SKILL.md</file>
+        <file alias="reverseuno.svg">../pkgbuild/reverseuno.svg</file>
+        <file alias="tray.svg">tray.svg</file>
+    </qresource>
+</RCC>

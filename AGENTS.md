@@ -1,5 +1,10 @@
 # AGENTS.md
 
+## Build and test
+
+`bin/build` (qmake6 + make), `bin/test` (Qt Test, offscreen), `bin/install` (makepkg). C++17 and Qt Quick;
+the old Electron/TypeScript code is on the `backup/pre-omarchy-native` branch. See `CLAUDE.md` and `SPEC.md`.
+
 <!-- delegation:v1 -->
 ## Delegation — Sonnet builds, Haiku swarms, Opus reviews
 

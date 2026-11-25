@@ -1,323 +1,123 @@
-<div align="center">
-  <img src="resources/icon.png" width="144" alt="reverseuno app icon">
-  <h1>reverseuno</h1>
-  <p><strong>Push-to-talk dictation for Omarchy / Hyprland.</strong></p>
-  <p>Hold Right Super → speak → release. The polished text lands at your cursor.</p>
+<p align="center"><img src="pkgbuild/reverseuno.svg" width="96" alt="reverseuno logo"></p>
 
-  <p>
-    <img src="https://img.shields.io/badge/Linux-Arch%20%2F%20Omarchy%20%2F%20Hyprland-1793D1?style=flat-square&logo=arch-linux&logoColor=white" alt="Arch / Omarchy / Hyprland">
-    <img src="https://img.shields.io/badge/Wayland-wtype%20%2B%20wl--clipboard-151518?style=flat-square" alt="Wayland">
-    <img src="https://img.shields.io/badge/Electron-44-47848F?style=flat-square&logo=electron&logoColor=white" alt="Electron 44">
-    <img src="https://img.shields.io/badge/Qt%20Quick-6-41CD52?style=flat-square&logo=qt&logoColor=white" alt="Qt Quick 6">
-    <img src="https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript strict">
-    <img src="https://img.shields.io/badge/tests-116%20engine%20%2B%2033%20Qt-4c8c6b?style=flat-square" alt="116 engine and 33 Qt tests passing">
-    <img src="https://img.shields.io/badge/telemetry-none-4c8c6b?style=flat-square" alt="No telemetry">
-    <img src="https://img.shields.io/badge/version-0.1.0-8e8e96?style=flat-square" alt="Version 0.1.0">
-  </p>
-</div>
+<p align="center"><img src="docs/screenshot.png" alt="reverseuno showing a dictated transcript and this run's history" width="760"></p>
 
-<table>
-  <tr>
-    <td width="62%" align="center"><img src="docs/screenshots/hub-history.png" alt="Hub: History"></td>
-    <td width="38%" align="center"><img src="docs/screenshots/overlay-listening.png" alt="Overlay while listening"><br><br><img src="docs/screenshots/hub-dictionary.png" alt="Hub: Dictionary"></td>
-  </tr>
-</table>
+# reverseuno
 
-Linux only, shaped around Omarchy, Hyprland and an Apple Magic Keyboard (Right Cmd
-is `Super_R`). A windowless Electron engine does the work; native Qt Quick windows (the
-Hub, the Overlay and a tray icon) follow the Omarchy theme. Cloud speech-to-text, cloud
-formatting, everything else local.
+Push-to-talk dictation for [Omarchy](https://omarchy.org) and Hyprland. Hold a key, speak, release,
+and the text lands in the window you were typing in.
 
-There is also a native Android version with a floating bubble above the keyboard: see
-[Android](#android).
+One small native app: C++ and Qt Quick, one binary, built with `qmake6` and `make`. It follows the
+Omarchy theme and language live. Speech goes to Deepgram (`nova-3`); audio lives in memory only and is
+never written to disk.
 
-## The journey
+## How it works
 
-One loop:
+1. Hold the key. `reverseuno start` records which window is active, opens the microphone (16 kHz mono)
+   and streams the audio to Deepgram over a WebSocket while you speak, so the words appear live.
+2. Release. `reverseuno stop` closes the stream and waits up to 2.5 s for the final text. If the stream
+   failed or heard nothing, the whole clip, still in memory, is sent in one request instead.
+3. The text is pasted into the window you started in: `wl-copy`, then Ctrl+V (Shift+Insert in
+   terminals and code editors), then your previous clipboard is put back, but only if it still holds
+   what reverseuno wrote. If focus moved it is returned first; if that fails, or the paste fails, the
+   text stays on the clipboard and the window says why.
 
-```text
-Hold Right Super
-  → speak
-  → release
-  → transcribe (Deepgram Nova-3 streaming, or an OpenRouter model)
-  → polish (OpenRouter or Anthropic) + dictionary spellings
-  → paste into the window you started in
-```
-
-| Stage | What happens |
-|---|---|
-| **Hold** | The Overlay appears with a live waveform and “Listening”. The focused window is remembered. |
-| **Speak** | 16 kHz mono audio streams to Deepgram (or is buffered for OpenRouter). |
-| **Release** | “Transcribing”, then “Polishing” with your cleanup level, writing style and dictionary. |
-| **Paste** | Focus returns to the original window if it moved, then `Ctrl+V` or `Shift+Insert` per app. Your clipboard is restored. |
-| **Done** | A short “Pasted”, then the Overlay hides. |
-
-The Overlay is a layer-shell surface that never takes keyboard focus, so it cannot
-steal the paste. Clicking the pill or `Super+Delete` cancels. If the original window
-is gone, the text is left on your clipboard instead of landing somewhere else.
-
-## What’s on screen
-
-| Surface | Role |
-|---|---|
-| **Overlay** | A small pill: waveform and one state word (Listening, Transcribing, Polishing, Pasted, or the error). Optional Resting pill when idle. |
-| **Hub → History** | Search your dictation entries; open one to read, edit, copy, insert, flag or delete it. Learned-edit suggestions sit on top. |
-| **Hub → Dictionary** | Spellings and corrections. A spelling keeps its exact form, so `fastfetch` stays lowercase. **Add developer words** loads ~170 terms. |
-| **Hub → Snippets** | Say a trigger, get the full text. |
-| **Hub → Settings** | Speech provider, model, language and microphone; Formatter provider, model, cleanup level, writing style and custom instructions; insertion and per-app rules; API keys with a test button; Overlay; history export and clear; start at login. |
-| **Tray** | State, start/stop, open the Hub, quit. |
-
-No dashboard and no stats. Both windows follow the active **Omarchy theme** and
-recolour live when it changes, even while the engine is down.
-
-<table>
-  <tr>
-    <td width="50%" align="center"><img src="docs/screenshots/hub-settings.png" alt="Hub: Settings"></td>
-    <td width="50%" align="center"><img src="docs/screenshots/hub-snippets.png" alt="Hub: Snippets"></td>
-  </tr>
-</table>
-
-## Engines / models
-
-BYOK. No keys ship with the app.
-
-| Engine | Role | Network |
-|---|---|---|
-| **Deepgram Nova-3** | Default speech-to-text. WebSocket streaming with interim results, dictionary keyterms, whole-clip batch fallback. | Audio to Deepgram while you speak |
-| **OpenRouter STT** | Alternative speech-to-text: any model from OpenRouter's transcription catalogue (default `openai/gpt-4o-mini-transcribe`). No live preview. | Audio to OpenRouter on release |
-| **OpenRouter formatter** | Default cleanup and style. Hard timeout; falls back to the transcript as heard. | Transcript text to OpenRouter |
-| **Anthropic formatter** | Alternative cleanup and style, straight to the Claude API (default `claude-haiku-5-5`, low effort). Same timeout and fallback. | Transcript text to Anthropic |
-
-Pick the speech provider, the Formatter provider and their models in Hub → Settings;
-the OpenRouter model fields suggest from OpenRouter's live lists. Keys are
-read from Settings, then `DEEPGRAM_API_KEY` / `OPENROUTER_API_KEY` /
-`ANTHROPIC_API_KEY`, then `~/.config/whisper-bar/config.env`.
-
-For accented English, set Language to **English** rather than Multilingual: the
-recogniser then never guesses another language.
-
-## Stack
-
-| Layer | Technology |
-|---|---|
-| Engine | Electron 44 (windowless main process + hidden capture window), electron-vite |
-| Windows | Qt 6 Quick, C++17, `qmake6`; Overlay via `layer-shell-qt`; tray via `Qt.labs.platform` |
-| Audio | `getUserMedia` + `AudioWorklet`, 640-sample (40 ms) frames |
-| Speech-to-text | Deepgram WebSocket / REST, OpenRouter `/audio/transcriptions` |
-| Formatting | OpenRouter chat completions, or the Anthropic Messages API (`@anthropic-ai/sdk`) |
-| Insertion | `wl-copy` / `wl-paste`, `wtype`, `hyprctl` refocus |
-| Hotkeys | Hyprland binds → `reverseuno` CLI → local HTTP control server |
-| Engine ↔ windows | Same control server: `/rpc/<method>` calls and an `/events` server-sent-events stream |
-| Storage | JSON in `~/.config/reverseuno/`; keys via `safeStorage` |
+Taps shorter than 250 ms and silent clips produce nothing. One session runs at a time, and a session
+stops itself after 5 minutes.
 
 ## Install
 
-### Arch package
-
-```bash
-git clone https://github.com/nodaysidle/reverseuno.git
-cd reverseuno/packaging
-makepkg -si                                   # builds the engine and qt/, runs both test suites
-python3 /usr/lib/reverseuno/scripts/install-hyprland.py   # Right Super binds + window rules
+```sh
+bin/install        # makepkg -fsi: installs /usr/bin/reverseuno, the launcher entry and the icon
 ```
 
-The package installs the engine to `/usr/lib/reverseuno` (run by Arch's `electron44`),
-the Qt app to `/usr/lib/reverseuno/qt/reverseuno-ui` (linked as `/usr/bin/reverseuno-ui`),
-the CLI as `/usr/bin/reverseuno`, and a **reverseuno** launcher entry that starts the
-engine, which brings up the Qt app. The Hyprland script is per user, so the package
-does not run it.
+`bin/install` builds the package from this working tree, uncommitted changes included.
+Runtime packages: `qt6-base qt6-declarative qt6-multimedia qt6-svg qt6-wayland qt6-websockets ffmpeg
+wl-clipboard wtype hyprland`. Anything missing is reported in the window.
 
-### From a checkout
+Or just build and run in place:
 
-Requires Arch / Omarchy with Hyprland, Node 22+, Qt 6 (`qt6-base`, `qt6-declarative`,
-`qt6-wayland`, `layer-shell-qt`), `wtype`, `wl-clipboard` and `jq`.
-
-```bash
-git clone https://github.com/nodaysidle/reverseuno.git
-cd reverseuno
-npm install
-npm run build
-bash scripts/install-local.sh
+```sh
+bin/build && build/reverseuno
+bin/test
 ```
 
-`install-local.sh`:
+## Set it up
 
-- builds `qt/` (`qmake6 && make`); the engine starts `qt/reverseuno-ui` from the
-  checkout itself, so nothing goes on `PATH`;
-- symlinks `bin/reverseuno` to `~/.local/bin/reverseuno`;
-- writes `~/.local/share/applications/reverseuno.desktop` and adds **Apps → reverseuno**
-  to the Omarchy menu;
-- backs up `~/.config/hypr/bindings.lua` and writes a managed block (rerunning updates
-  it in place, including blocks older versions wrote):
+Open the window: **Setup** lists what reverseuno needs, with a fix for each. It opens on its own the
+first time something basic (key, microphone, tools) is missing.
+
+- **Deepgram API key.** Paste it in Setup or Settings (`S`); it is stored in `~/.config/reverseuno/config.json`
+  (mode 0600) and never shown again. `DEEPGRAM_API_KEY` in the environment wins over the saved key.
+- **Tools.** Missing ones are listed with the exact command, e.g. `omarchy pkg add wl-clipboard wtype`.
+- **Hotkeys.** *Install hotkeys* writes a marked block into `~/.config/hypr/bindings.lua`:
+
+  | Key | Action |
+  |---|---|
+  | `F8` (hold) | Press starts dictating, release stops and pastes |
+  | `SUPER + U` | Toggle dictation |
+  | `F12` | Cancel |
+
+  It also adds a window rule so the window opens floating, centred, 980x660.
+- **Start at login.** *Install autostart* adds a marked block to `~/.config/hypr/autostart.lua` that
+  runs `reverseuno daemon`, so the keys work right after login.
+
+Both blocks sit between `-- >>> reverseuno` and `-- <<< reverseuno` and are replaced in place; the rest of the
+file is never touched. Before changing a file reverseuno copies it to `<file>.bak.<epoch>`, writes the new one
+atomically, runs `hyprctl reload` and `hyprctl configerrors`, and puts the old file back if Hyprland reports a
+new error. Installing twice changes nothing the second time. `REVERSEUNO_HYPR_DIR` points it at another folder.
+
+To do it by hand instead, the block is:
 
 ```lua
-o.bind("Super_R", "reverseuno hold", "~/.local/bin/reverseuno start")
-o.bind("Super_R", "reverseuno release", "~/.local/bin/reverseuno stop", { release = true })
-o.bind("SUPER + Super_R", "reverseuno release (super held)", "~/.local/bin/reverseuno stop", { release = true })
-o.bind("SUPER + Delete", "reverseuno cancel", "~/.local/bin/reverseuno cancel")
-o.window({ class = "^reverseuno$", title = "^reverseuno$" }, { float = true, center = true, size = { 980, 660 } })
-hl.layer_rule({ match = { namespace = "^reverseuno-overlay$" }, no_anim = true, animation = "none" })
+o.bind_hold("F8", "reverseuno: start dictating", "/usr/bin/reverseuno start", "reverseuno: stop dictating", "/usr/bin/reverseuno stop")
+o.bind("SUPER + U", "reverseuno: toggle dictation", "/usr/bin/reverseuno toggle")
+o.bind("F12", "reverseuno: cancel dictation", "/usr/bin/reverseuno cancel")
+-- autostart.lua: o.launch_on_start("/usr/bin/reverseuno daemon")
 ```
 
-- comments out an old WhisperBar `Super_R` bind and reloads Hyprland.
+`reverseuno daemon` starts hidden; `reverseuno open` (or the launcher) shows the window. Closing the window
+only hides it; `Q` quits. A tray icon (the N in your theme accent, with a badge while listening or on error)
+sits in the bar: left click shows or hides the window, the menu has Start/Stop dictation, Open, Setup and Quit.
 
-The release is bound twice because Hyprland can still count Super as held while
-`Super_R` is released; a duplicate stop is ignored. The real file uses absolute paths.
-The Hub's Wayland app id is `reverseuno`; the Overlay's layer namespace is
-`reverseuno-overlay`.
+## Commands
 
-Then add your keys in Hub → Settings → API keys, hold **Right Super**, speak, and
-release. For development with hot reload: `npm run dev` (the engine still starts
-`qt/reverseuno-ui`; `REVERSEUNO_UI=<path>` picks another build, `REVERSEUNO_NO_UI=1`
-runs without windows).
-
-## Android
-
-A native Android app (Kotlin + Jetpack Compose, Android 12+) with the same hub. A
-floating bubble appears just above the keyboard in any text field: tap to start, tap to
-stop, or hold to talk. The text is inserted where you are typing. The bubble stays out
-of password, number and phone fields.
-
-<p>
-  <img src="docs/screenshots/android-bubble.png" width="240" alt="Android dictation bubble">
-  <img src="docs/screenshots/android-home.png" width="240" alt="Android hub home">
-  <img src="docs/screenshots/android-style.png" width="240" alt="Android style settings">
-</p>
-
-**Download:** `reverseuno-android-0.1.0.apk` from the
-[android-v0.1.0 release](https://github.com/nodaysidle/reverseuno/releases/tag/android-v0.1.0).
-It is a sideload install; the app is not on the Play Store.
-
-1. Optionally verify the download against the `.sha256` file from the same release:
-   ```bash
-   sha256sum -c reverseuno-android-0.1.0.apk.sha256
-   ```
-   The expected SHA-256 is
-   `ece6e7e97a994002be78b8606fd93e9dbf7a98dea01270819a9d8078b466f424`.
-2. Open the APK on the phone. When Android asks, allow installs from unknown sources
-   for your browser or file manager.
-3. Turn on **reverseuno dictation bubble** in Settings → Accessibility (the Home screen
-   links there) and allow the microphone.
-4. Add your own keys in reverseuno → Settings → Providers: OpenRouter (required),
-   Anthropic (cleanup), DeepSeek (optional fallback). No keys ship with the app.
-5. On Xiaomi/MIUI, allow Autostart and set Battery to "No restrictions"
-   (Settings → Phone setup).
-
-Audio goes to OpenRouter and text to Anthropic (DeepSeek on fallback). Audio is
-recorded to the app's private cache and deleted after transcription; keys are kept in
-the Android Keystore-backed vault. Building from source, signing and logs:
-[android/README.md](android/README.md).
-
-## Shortcuts
-
-| Action | Default |
+| Command | What it does |
 |---|---|
-| Hold to dictate | `Right Super` (Right Cmd on a Magic Keyboard) |
-| Cancel | `Super + Delete` |
-| Cancel from the mouse | Click the Overlay pill |
-| Start / stop from the mouse | Tray → start/stop (toggles, then pastes) |
+| `reverseuno` / `reverseuno open` | Show the window, or raise the running one |
+| `reverseuno daemon` | Start hidden, for `exec-once` |
+| `reverseuno start` / `stop` / `toggle` | Control the running instance (exit 1 and a message if none runs) |
+| `reverseuno cancel` | Abort whatever is running |
+| `reverseuno quit` | Quit the running instance |
+| `reverseuno transcribe FILE [--json]` | Transcribe an audio file (any format `ffmpeg` reads) and print the text, or `{"text","durationMs","language"}`; exit 0 or 1, errors on stderr |
+| `reverseuno skill install [--dir DIR]` | Install an agent skill to `~/.claude/skills/reverseuno/SKILL.md` |
 
-## CLI
+The instance listens on the session bus as `io.github.nodaysidle.Reverseuno` (`Start`, `Stop`, `Toggle`,
+`Cancel`, `Show`, `Quit`). Everything except the window commands runs without a display.
+`transcribe` always uses the single-request path, not the stream.
 
-```bash
-reverseuno start          # press
-reverseuno stop           # release → transcribe → format → paste
-reverseuno toggle
-reverseuno cancel
-reverseuno state
-reverseuno show settings    # open the Hub: history (default), dictionary, snippets, settings
-reverseuno paste "text"   # insert text at the focused cursor
-reverseuno lang cycle
-reverseuno quit
-```
+## Keyboard
 
-The CLI and the Qt app talk to `127.0.0.1:47100` (or the next free port) with a
-per-run bearer token in `~/.config/reverseuno/control.json` (mode 0600); requests that
-carry an `Origin` header are refused, so web pages cannot reach it. `show` starts the
-Qt app first if it is not running. Each call is logged to
-`~/.config/reverseuno/logs/app.log`.
-
-## Testing
-
-```bash
-npm test                              # 116 engine tests (vitest)
-npm run typecheck
-(cd qt && make check)                 # 5 Qt suites, 33 tests, offscreen
-npm run test:e2e                      # fake mic → STT → format → target window, with a focus steal
-E2E_STT=openrouter npm run test:e2e   # the same run through OpenRouter transcription
-```
-
-The E2E harness feeds a known WAV through Chromium's fake microphone, steals focus to
-a decoy window mid-dictation, and checks that the text lands in the original window,
-the decoy stays empty, the clipboard is restored and history is written. The Qt tests
-run on the offscreen platform and never put a window on the desktop. Real-key
-push-to-talk with a physical mic is verified by hand.
-
-## Architecture
-
-```text
-Right Super (Hyprland bind)
-        │
-        ▼
-reverseuno CLI ──HTTP──▶ Electron main (DictationEngine, no windows) ◀──HTTP /rpc + /events──▶ reverseuno-ui (Qt)
-                              │                                                  Hub, Overlay, tray
-        ┌─────────────────────┼────────────────────────┐
-        ▼                     ▼                        ▼
-  capture renderer      Deepgram WS / OpenRouter  Formatter (OpenRouter or Anthropic)
-  (hidden window)       interim + final           cleanup + style + dictionary
-  AudioWorklet 16 kHz   batch fallback            timeout + fallback to the transcript
-        │
-        ▼
-  refocus target → clipboard + wtype → restore clipboard
-        │
-        ▼
-  history, dictionary, snippets (JSON)
-```
-
-The engine starts the Qt app and restarts it if it crashes (up to five times a
-minute). It looks for `REVERSEUNO_UI`, then `<app>/qt/reverseuno-ui`, then
-`reverseuno-ui` on `PATH`. Nothing in the push-to-talk path depends on the Qt app.
-
-| Path | Responsibility |
+| Key | Action |
 |---|---|
-| `src/main/dictation.ts` | State machine, streaming, fallback, formatting, insertion, history |
-| `src/main/stt/` | Deepgram (WebSocket + batch) and OpenRouter clients |
-| `src/main/format.ts` | Formatter prompt and the OpenRouter and Anthropic calls |
-| `src/main/paste.ts` | Hyprland window lookup and refocus, clipboard snapshot/restore, `wtype` rules |
-| `src/main/theme.ts` | Reads and watches the active Omarchy theme |
-| `src/main/index.ts` | Capture window, control server, Overlay placement, autostart |
-| `src/main/control.ts`, `api.ts` | Control server: CLI endpoints, `/rpc` table, `/events` stream |
-| `src/main/supervisor.ts` | Finds, starts and restarts the Qt app |
-| `src/renderer/` | Hidden capture renderer |
-| `src/shared/` | Types, defaults, text cleanup, developer vocabulary, stats, WAV |
-| `qt/` | `reverseuno-ui`: Hub, Overlay, tray, theme watcher, engine client, QtTests |
-| `packaging/` | `PKGBUILD` and the launcher entry |
-| `scripts/install-hyprland.py` | Idempotent Hyprland bind block, Hub window rule, Overlay layer rule |
+| `Space` | Start or stop dictating |
+| `Ctrl+C` or `Enter` | Copy the last transcript |
+| `S` or `Ctrl+,` | Settings: key, language, insert mode (paste, type, copy only), microphone |
+| Setup button | First-run checklist: key, microphone, tools, hotkeys, autostart |
+| `?` | Shortcut overlay |
+| `Q` or `Esc` | Quit (asks first if a recording or an uninserted transcript exists) |
 
-## Known gaps
+## Left out on purpose
 
-- **Hyprland only.** No X11, GNOME or KDE shortcut path; the Overlay needs a
-  layer-shell compositor.
-- No start/stop sound cues: the Qt windows play none and have no control for them; a
-  stored `overlay.sounds` value is ignored.
-- **Cloud only** by design: no offline Whisper.
-- No paste verification (Linux would need AT-SPI). A failed paste is recorded in
-  history but not retried.
-- No focused-field context; only the app class and window title reach the formatter.
-- A local `PKGBUILD` only: no AUR package, auto-update or signed releases yet.
-- `safeStorage` falls back to a plainly marked value on systems without a keyring.
+The old Electron app also had an LLM formatter, a personal dictionary, snippets, stats, a persistent
+history and an Android port. They are dropped for a minimal scope: the window keeps only this run's
+transcripts, in memory. The Electron/TypeScript code lives on in the `backup/pre-omarchy-native` branch.
 
 ## Privacy
 
-- Audio is streamed to Deepgram (or sent once to OpenRouter on release), held in
-  memory for that request only, and never written to disk.
-- The transcript goes to the chosen formatter (OpenRouter or Anthropic) when
-  formatting is on; app class and window title can be sent as context (turn it off
-  in Hub → Settings).
-- History, dictionary, snippets and settings stay in `~/.config/reverseuno/`.
-
-No accounts, no analytics, no telemetry.
+No telemetry, no account. Audio is held in memory and sent to Deepgram only while you dictate. The API
+key is never logged or shown.
 
 ## License
 
-MIT. See [`LICENSE`](LICENSE).
+MIT, see `LICENSE`.
